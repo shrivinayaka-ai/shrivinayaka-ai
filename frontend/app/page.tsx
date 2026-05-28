@@ -67,7 +67,7 @@ export default function Home() {
       console.log("REQUEST PAYLOAD:", payload);
 
       const response = await axios.post(
-        "http://127.0.0.1:8000/generate-report",
+        "https://shrivinayaka-backend.onrender.com/generate-report",
         payload,
         { timeout: 180000 }
       );
@@ -98,7 +98,7 @@ export default function Home() {
       setLoading(true);
 
       const orderResponse = await axios.post(
-        "http://127.0.0.1:8000/create-payment-order"
+        "https://shrivinayaka-backend.onrender.com/create-payment-order"
       );
 
       const { order_id, amount, currency, key } = orderResponse.data;
@@ -118,7 +118,7 @@ export default function Home() {
         handler: async function (response: any) {
 
           const verifyResponse = await axios.post(
-            "http://127.0.0.1:8000/verify-payment",
+            "https://shrivinayaka-backend.onrender.com/verify-payment",
             {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,

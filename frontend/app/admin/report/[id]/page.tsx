@@ -14,7 +14,7 @@ export default function SavedReportPage() {
   const fetchReport = async () => {
     try {
       const response = await axios.get(
-        `http://127.0.0.1:8000/report/${params.id}`,
+        `https://shrivinayaka-backend.onrender.com/report/${params.id}`,
         {
           headers: {
             "x-admin-key": adminKey
