@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 from astrology_engine.location import get_coordinates
 from astrology_engine.dasha import generate_dasha
+from astrology_engine.transits import generate_transits
 
 # IMPORTANT: set ayanamsa once
 swe.set_sid_mode(swe.SIDM_LAHIRI)
@@ -28,6 +29,26 @@ NAKSHATRAS = [
 
 def degree_to_sign(deg):
     return SIGNS[int(deg / 30) % 12]
+
+
+def degree_in_sign_dms(deg):
+    sign_degree = deg % 30
+
+    d = int(sign_degree)
+    minutes_float = (sign_degree - d) * 60
+    m = int(minutes_float)
+    seconds_float = (minutes_float - m) * 60
+    s = int(round(seconds_float))
+
+    if s == 60:
+        s = 0
+        m += 1
+
+    if m == 60:
+        m = 0
+        d += 1
+
+    return f"{d:02d}:{m:02d}:{s:02d}"
 
 
 def get_nakshatra(deg):
@@ -105,12 +126,13 @@ def generate_chart(birth_date, birth_time, birth_place):
         "Jupiter": swe.JUPITER,
         "Venus": swe.VENUS,
         "Saturn": swe.SATURN,
-        "Rahu": swe.MEAN_NODE
+        "Rahu": swe.TRUE_NODE
     }
 
     chart = {
         "Ascendant": {
-            "degree": round(asc_deg, 2),
+            "degree": degree_in_sign_dms(asc_deg),
+            "full_degree": round(asc_deg, 2),
             "raw_degree": asc_deg,
             "sign": degree_to_sign(asc_deg),
             "house": 1
@@ -133,7 +155,8 @@ def generate_chart(birth_date, birth_time, birth_place):
         house = ((sign - asc_sign) % 12) + 1
 
         chart[name] = {
-            "degree": round(planet_lon, 2),
+            "degree": degree_in_sign_dms(planet_lon),
+            "full_degree": round(planet_lon, 2),
             "raw_degree": planet_lon,
             "sign": SIGNS[sign],
             "house": house
@@ -152,7 +175,8 @@ def generate_chart(birth_date, birth_time, birth_place):
             ketu_house = ((ketu_sign - asc_sign) % 12) + 1
 
             chart["Ketu"] = {
-                "degree": round(ketu_lon, 2),
+                "degree": degree_in_sign_dms(ketu_lon),
+                "full_degree": round(ketu_lon, 2),
                 "raw_degree": ketu_lon,
                 "sign": SIGNS[ketu_sign],
                 "house": ketu_house
@@ -168,6 +192,7 @@ def generate_chart(birth_date, birth_time, birth_place):
     ayanamsa_degree = swe.get_ayanamsa_ut(dasha_jd)
 
     dasha = generate_dasha(dasha_moon_raw, dt)
+    transits = generate_transits(chart)
 
     # ---------------- FINAL OUTPUT ----------------
     return {
@@ -186,5 +211,6 @@ def generate_chart(birth_date, birth_time, birth_place):
             "ayanamsa_degree": ayanamsa_degree
         },
         "chart": chart,
-        "dasha": dasha
+        "dasha": dasha,
+        "transits": transits
     }

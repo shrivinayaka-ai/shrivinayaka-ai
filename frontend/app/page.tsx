@@ -4,9 +4,13 @@ import { useState } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+
 type ReportData = {
   name: string;
   report_type: string;
+  language?: string;
   input: {
     birth_date: string;
     birth_time: string;
@@ -19,6 +23,11 @@ type ReportData = {
     years: number;
   };
   chart?: Record<string, any>;
+  transits?: {
+    date: string;
+    ayanamsa: string;
+    transits: Record<string, any>;
+  };
   dasha_timeline?: Array<{
     planet: string;
     start: string;
@@ -35,9 +44,11 @@ export default function Home() {
     birth_time: "",
     birth_place: "",
     report_type: "free",
+    language: "english",
   });
 
   const [loading, setLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [report, setReport] = useState<ReportData | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -67,7 +78,7 @@ export default function Home() {
       console.log("REQUEST PAYLOAD:", payload);
 
       const response = await axios.post(
-        "https://shrivinayaka-backend.onrender.com/generate-report",
+        `${API_BASE_URL}/generate-report`,
         payload,
         { timeout: 180000 }
       );
@@ -85,6 +96,8 @@ export default function Home() {
   };
 
   const generateReport = async () => {
+    console.log("Generate Report clicked", formData);
+
     if (formData.report_type.toLowerCase().trim() === "premium") {
       await generatePremiumReport();
       return;
@@ -98,7 +111,7 @@ export default function Home() {
       setLoading(true);
 
       const orderResponse = await axios.post(
-        "https://shrivinayaka-backend.onrender.com/create-payment-order"
+        `${API_BASE_URL}/create-payment-order`
       );
 
       const { order_id, amount, currency, key } = orderResponse.data;
@@ -118,7 +131,7 @@ export default function Home() {
         handler: async function (response: any) {
 
           const verifyResponse = await axios.post(
-            "https://shrivinayaka-backend.onrender.com/verify-payment",
+            `${API_BASE_URL}/verify-payment`,
             {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
@@ -147,13 +160,436 @@ export default function Home() {
     }
   };
 
+  const formatReportMarkdown = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => {
+        const trimmed = line.trim();
+
+        if (
+          trimmed &&
+          !trimmed.startsWith("#") &&
+          !trimmed.startsWith("- ") &&
+          trimmed.endsWith(":") &&
+          trimmed.length <= 70
+        ) {
+          return `### ${trimmed.replace(/:$/, "")}`;
+        }
+
+        return line;
+      })
+      .join("\n");
+
   const downloadPDF = async () => {
     if (!report) {
       alert("Report not found");
       return;
     }
 
+    setPdfLoading(true);
+
+    const hasDevanagari = /[\u0900-\u097F]/.test(report.report);
+
     try {
+      if (report.language?.toLowerCase() === "hindi" || hasDevanagari) {
+      const escapeHtml = (value: string) =>
+        value
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+
+      const formatLabel = (value?: string) => {
+        if (!value) {
+          return "-";
+        }
+
+        if (value.toLowerCase() === "hindi") {
+          return "Hindi";
+        }
+
+        if (value.toLowerCase() === "hinglish") {
+          return "Hinglish";
+        }
+
+        return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+      };
+
+      const markdownToHtml = (markdown: string) =>
+        markdown
+          .split("\n")
+          .map((line) => {
+            const trimmed = line.trim();
+
+            if (!trimmed) {
+              return "<div class=\"gap\"></div>";
+            }
+
+            if (trimmed.startsWith("# ")) {
+              return `<h1>${escapeHtml(trimmed.replace(/^#\s+/, ""))}</h1>`;
+            }
+
+            if (trimmed.startsWith("## ")) {
+              return `<h2>${escapeHtml(trimmed.replace(/^##\s+/, ""))}</h2>`;
+            }
+
+            if (trimmed.startsWith("### ")) {
+              return `<h3>${escapeHtml(trimmed.replace(/^###\s+/, ""))}</h3>`;
+            }
+
+            if (trimmed.startsWith("- ")) {
+              return `<p class="bullet">&#8226; ${escapeHtml(trimmed.replace(/^-\s+/, ""))}</p>`;
+            }
+
+            return `<p>${escapeHtml(trimmed)}</p>`;
+          })
+          .join("");
+
+      const chartHtml = report.chart
+        ? `
+          <section class="pdf-section">
+            <h2>Planetary Positions</h2>
+            <div class="pdf-grid">
+              ${Object.entries(report.chart)
+                .map(
+                  ([planet, data]: any) => `
+                    <div class="pdf-card">
+                      <strong>${escapeHtml(planet)}</strong>
+                      <span>${escapeHtml(data.sign ?? "-")}</span>
+                      <small>${escapeHtml(data.degree ?? "")} | House ${escapeHtml(String(data.house ?? "-"))}</small>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          </section>
+        `
+        : "";
+
+      const transitsHtml = report.transits?.transits
+        ? `
+          <section class="pdf-section">
+            <h2>Current Transits</h2>
+            <div class="pdf-grid">
+              ${Object.entries(report.transits.transits)
+                .map(
+                  ([planet, data]: any) => `
+                    <div class="pdf-card">
+                      <strong>${escapeHtml(planet)}</strong>
+                      <span>${escapeHtml(data.sign ?? "-")}</span>
+                      <small>${escapeHtml(planet)} in ${escapeHtml(String(data.house_from_ascendant ?? "-"))}th House</small>
+                      <small>${escapeHtml(String(data.house_from_moon ?? "-"))}th House from Moon</small>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          </section>
+        `
+        : "";
+
+      const dashaTimelineHtml = report.dasha_timeline
+        ? `
+          <section class="pdf-section">
+            <h2>Mahadasha Timeline</h2>
+            <div class="pdf-list">
+              ${report.dasha_timeline
+                .map(
+                  (dasha) => `
+                    <p>
+                      <strong>${escapeHtml(dasha.planet)}</strong>
+                      ${escapeHtml(dasha.start)} to ${escapeHtml(dasha.end)}
+                    </p>
+                  `
+                )
+                .join("")}
+            </div>
+          </section>
+        `
+        : "";
+
+      const html2canvasModule = await import("html2canvas");
+      const jsPDFModule = await import("jspdf");
+      const html2canvas = html2canvasModule.default;
+      const jsPDF = jsPDFModule.default;
+
+      const pdfElement = document.createElement("div");
+      pdfElement.style.position = "fixed";
+      pdfElement.style.left = "-10000px";
+      pdfElement.style.top = "0";
+      pdfElement.style.width = "794px";
+      pdfElement.style.padding = "0";
+      pdfElement.style.backgroundColor = "#ffffff";
+      pdfElement.style.color = "#202024";
+      pdfElement.style.fontFamily =
+        '"Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif';
+      pdfElement.style.fontSize = "15px";
+      pdfElement.style.lineHeight = "1.72";
+
+      pdfElement.innerHTML = `
+        <style>
+          .pdf-header {
+            text-align: center;
+            padding: 56px 0 52px;
+            margin: 0 0 64px;
+            border-bottom: 14px solid #7c3aed;
+            background: #21113d;
+            border-radius: 0;
+          }
+
+          .pdf-brand {
+            margin: 0;
+            padding: 0;
+            color: #f5f0ff;
+            font-size: 38px;
+            font-weight: 700;
+            line-height: 1.25;
+            text-align: center;
+            font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
+          }
+
+          .pdf-subtitle {
+            margin: 22px 0 0;
+            padding: 0;
+            color: #ded6f4;
+            font-size: 18px;
+            font-weight: 400;
+            line-height: 1.35;
+            text-align: center;
+          }
+
+          .pdf-content .pdf-header .pdf-brand {
+            margin: 0;
+            padding: 0;
+            color: #f5f0ff;
+            font-size: 38px;
+            font-weight: 700;
+            line-height: 1.25;
+            text-align: center;
+          }
+
+          .pdf-content .pdf-header .pdf-subtitle {
+            margin: 22px 0 0;
+            padding: 0;
+            color: #ded6f4;
+            font-size: 18px;
+            font-weight: 400;
+            line-height: 1.35;
+            text-align: center;
+          }
+
+          .pdf-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px 80px;
+            margin: 0 auto 38px;
+            max-width: 640px;
+            padding: 28px 32px;
+            border: 1px solid #ddd6fe;
+            background: #f3edff;
+            border-radius: 12px;
+            box-shadow: none;
+          }
+
+          .pdf-info p {
+            margin: 0;
+            padding: 0;
+            border-radius: 0;
+            background: transparent;
+            border: 0;
+          }
+
+          .pdf-info strong {
+            display: block;
+            margin-bottom: 4px;
+            color: #5f5b68;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+          }
+
+          .pdf-section {
+            margin: 26px 0;
+          }
+
+          .pdf-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+          }
+
+          .pdf-card {
+            padding: 10px;
+                border: 1px solid #e5e0f5;
+                border-radius: 8px;
+                background: #fbfbfd;
+                break-inside: avoid;
+              }
+
+          .pdf-card strong,
+          .pdf-card span,
+          .pdf-card small {
+            display: block;
+          }
+
+          .pdf-card strong {
+            color: #202024;
+            font-size: 14px;
+          }
+
+          .pdf-card span {
+            margin-top: 3px;
+            color: #333333;
+          }
+
+          .pdf-card small {
+            margin-top: 3px;
+            color: #66606f;
+            font-size: 12px;
+          }
+
+          .pdf-list p {
+            margin: 0 0 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #eeeaf8;
+            break-inside: avoid;
+          }
+
+          .pdf-content h1 {
+            margin: 30px 0 20px;
+            padding: 18px 0 8px;
+            color: #750606;
+            font-size: 32px;
+            font-weight: 800;
+            line-height: 1.65;
+            break-after: avoid;
+            box-sizing: border-box;
+            overflow: visible;
+            text-align: center;
+            font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
+          }
+
+          .pdf-content h2 {
+            margin: 26px 0 12px;
+            padding: 18px 0 8px;
+            color: #750606;
+            font-size: 21px;
+            font-weight: 800;
+            line-height: 1.7;
+            break-after: avoid;
+            box-sizing: border-box;
+            overflow: visible;
+            font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
+          }
+
+          .pdf-content h3 {
+            margin: 20px 0 8px;
+            padding: 16px 0 8px;
+            color: #750606;
+            font-size: 17px;
+            font-weight: 800;
+            line-height: 1.75;
+            break-after: avoid;
+            box-sizing: border-box;
+            overflow: visible;
+            font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
+          }
+
+          .pdf-content p {
+            margin: 0 0 12px;
+            padding: 6px 0 7px;
+            text-align: left;
+            word-break: normal;
+            overflow-wrap: anywhere;
+            break-inside: avoid;
+            line-height: 1.85;
+            box-sizing: border-box;
+            overflow: visible;
+          }
+
+          .pdf-content .bullet {
+            margin-left: 16px;
+          }
+
+          .pdf-content .gap {
+            height: 8px;
+          }
+        </style>
+
+        <main class="pdf-content pdf-flow">
+          <div class="pdf-header">
+            <h1 class="pdf-brand">Shrivinayaka AI Astrology</h1>
+            <p class="pdf-subtitle">Personal Vedic Astrology Report</p>
+          </div>
+
+          <div class="pdf-info">
+            <p><strong>Name:</strong> ${escapeHtml(report.name)}</p>
+          <p><strong>Report Type:</strong> ${escapeHtml(formatLabel(report.report_type))}</p>
+          <p><strong>Language:</strong> ${escapeHtml(formatLabel(report.language ?? "hindi"))}</p>
+            <p><strong>Mahadasha:</strong> ${escapeHtml(report.current_mahadasha?.planet ?? "-")}</p>
+            <p><strong>Period:</strong> ${escapeHtml(report.current_mahadasha?.start ?? "-")} to ${escapeHtml(report.current_mahadasha?.end ?? "-")}</p>
+          </div>
+
+          ${chartHtml}
+          ${transitsHtml}
+          ${dashaTimelineHtml}
+          ${markdownToHtml(formatReportMarkdown(report.report))}
+        </main>
+      `;
+
+      document.body.appendChild(pdfElement);
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+
+      const flow = pdfElement.querySelector(".pdf-flow") as HTMLElement | null;
+
+      if (!flow) {
+        throw new Error("PDF content not found");
+      }
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const pageMargin = 16;
+      const imgWidth = pdfWidth - pageMargin * 2;
+      const bottomLimit = pdfHeight - pageMargin;
+      const blocks = Array.from(flow.children) as HTMLElement[];
+      let y = pageMargin;
+
+      for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+        const block = blocks[blockIndex];
+        const tagName = block.tagName.toLowerCase();
+
+        if ((tagName === "h1" || tagName === "h2" || tagName === "h3") && y > pdfHeight - 52) {
+          pdf.addPage();
+          y = pageMargin;
+        }
+
+        const canvas = await html2canvas(block, {
+          scale: 2,
+          backgroundColor: "#ffffff",
+          useCORS: true,
+        });
+
+        const pageImgData = canvas.toDataURL("image/png");
+        const imageHeight = (canvas.height * imgWidth) / canvas.width;
+
+        if (y + imageHeight > bottomLimit && y > pageMargin) {
+          pdf.addPage();
+          y = pageMargin;
+        }
+
+        const finalHeight = Math.min(imageHeight, bottomLimit - y);
+        pdf.addImage(pageImgData, "PNG", pageMargin, y, imgWidth, finalHeight);
+        y += finalHeight + 3.5;
+      }
+
+      document.body.removeChild(pdfElement);
+
+      pdf.save("shrivinayaka-astrology-report.pdf");
+      return;
+    }
+
       const jsPDFModule = await import("jspdf");
       const jsPDF = jsPDFModule.default;
       const pdf = new jsPDF("p", "mm", "a4");
@@ -165,9 +601,9 @@ export default function Home() {
       const bottomLimit = pageHeight - 24;
       let y = 24;
 
-      const purple: [number, number, number] = [91, 33, 182];
+      const purple: [number, number, number] = [117, 6, 6];
       const palePurple: [number, number, number] = [245, 240, 255];
-      const gold: [number, number, number] = [146, 100, 21];
+      const gold: [number, number, number] = [117, 6, 6];
       const ink: [number, number, number] = [32, 32, 36];
       const muted: [number, number, number] = [92, 92, 104];
 
@@ -281,6 +717,22 @@ export default function Home() {
         pdf.text(value || "-", x, rowY + 6);
       };
 
+      const formatPdfLabel = (value?: string) => {
+        if (!value) {
+          return "-";
+        }
+
+        if (value.toLowerCase() === "hindi") {
+          return "Hindi";
+        }
+
+        if (value.toLowerCase() === "hinglish") {
+          return "Hinglish";
+        }
+
+        return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+      };
+
       const drawHeader = () => {
         pdf.setFillColor(35, 20, 65);
         pdf.rect(0, 0, pageWidth, 46, "F");
@@ -310,7 +762,7 @@ export default function Home() {
         pdf.roundedRect(margin, y, contentWidth, 38, 3, 3, "FD");
 
         keyValue("Name", report.name, margin + 7, y + 11);
-        keyValue("Report Type", report.report_type, margin + 70, y + 11);
+        keyValue("Report Type", formatPdfLabel(report.report_type), margin + 70, y + 11);
         keyValue(
           "Current Mahadasha",
           `${report.current_mahadasha?.planet ?? "-"} Mahadasha`,
@@ -358,7 +810,11 @@ export default function Home() {
           pdf.setFont("helvetica", "normal");
           pdf.setFontSize(9.5);
           setColor(muted);
-          pdf.text(`${data.sign} | House ${data.house}`, x + 4, y + 13);
+          pdf.text(
+            `${data.sign} ${data.degree ? `| ${data.degree}` : ""} | House ${data.house}`,
+            x + 4,
+            y + 13
+          );
 
           if (col === columns - 1 || index === entries.length - 1) {
             y += cardHeight + 5;
@@ -393,7 +849,7 @@ export default function Home() {
       const writeReport = () => {
         sectionHeading("Astrology Report");
 
-        report.report
+        formatReportMarkdown(report.report)
           .split("\n")
           .map((line) => line.trim())
           .forEach((line) => {
@@ -456,6 +912,8 @@ export default function Home() {
     } catch (error) {
       console.error(error);
       alert("PDF download failed");
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -517,6 +975,23 @@ export default function Home() {
             <option value="premium">Premium Report</option>
           </select>
 
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-300">
+              Language
+            </label>
+
+            <select
+              name="language"
+              value={formData.language}
+              className="w-full p-3 rounded-xl bg-zinc-800"
+              onChange={handleChange}
+            >
+              <option value="english">English</option>
+              <option value="hindi">सरल हिन्दी</option>
+              <option value="hinglish">Hinglish</option>
+            </select>
+          </div>
+
           <button
             type="button"
             onClick={generateReport}
@@ -576,12 +1051,67 @@ export default function Home() {
                         >
                           <p className="font-bold">{planet}</p>
                           <p>{data.sign}</p>
+                          {data.degree && (
+                            <p className="text-sm text-purple-200">
+                              {data.degree}
+                            </p>
+                          )}
                           <p className="text-sm text-gray-400">
                             House {data.house}
                           </p>
                         </div>
                       )
                     )}
+                  </div>
+                </div>
+              )}
+
+              {report.transits?.transits && (
+                <div className="bg-zinc-800 p-4 rounded-xl">
+                  <h3 className="text-xl font-bold mb-4">
+                    Current Transits
+                  </h3>
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {Object.entries(report.transits.transits).map(
+                      ([planet, data]: any) => (
+                        <div
+                          key={planet}
+                          className="bg-zinc-900 p-3 rounded-lg"
+                        >
+                          <p className="font-bold">{planet}</p>
+                          <p>{data.sign}</p>
+                          <p className="text-sm text-gray-400">
+                            {planet} in {data.house_from_ascendant}th House
+                          </p>
+                          <p className="text-sm text-gray-400">
+                            {data.house_from_moon}th House from Moon
+                          </p>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {report.dasha_timeline && (
+                <div className="bg-zinc-800 p-4 rounded-xl">
+                  <h3 className="text-xl font-bold mb-4">
+                    Mahadasha Timeline
+                  </h3>
+
+                  <div className="space-y-2">
+                    {report.dasha_timeline.map((dasha) => (
+                      <div
+                        key={`${dasha.planet}-${dasha.start}`}
+                        className="flex flex-col gap-1 rounded-lg bg-zinc-900 p-3 md:flex-row md:items-center md:justify-between"
+                      >
+                        <p className="font-bold">{dasha.planet}</p>
+                        <p className="text-sm text-gray-400">
+                          {dasha.start} → {dasha.end}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -631,7 +1161,7 @@ export default function Home() {
                       ),
                     }}
                   >
-                    {report.report}
+                    {formatReportMarkdown(report.report)}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -646,9 +1176,10 @@ export default function Home() {
 
                 <button
                   onClick={downloadPDF}
-                  className="bg-purple-600 hover:bg-purple-700 px-5 py-3 rounded-xl font-bold"
+                  disabled={pdfLoading}
+                  className="bg-purple-600 hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed px-5 py-3 rounded-xl font-bold"
                 >
-                  Download PDF
+                  {pdfLoading ? "Downloading..." : "Download PDF"}
                 </button>
               </div>
 

@@ -1,6 +1,7 @@
 import os
 import razorpay
 import uuid
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +39,7 @@ class BirthData(BaseModel):
     birth_time: str
     birth_place: str
     report_type: str = "free"
+    language: str = "english"
     payment_token: str | None = None
 
 
@@ -189,12 +191,15 @@ def generate_report(data: BirthData):
 
     report = generate_full_prediction(
         chart_data=chart,
-        report_type=data.report_type
+        report_type=data.report_type,
+        language=data.language
     )
 
     current_dasha = None
+    today = datetime.today().strftime("%Y-%m-%d")
+
     for period in chart["dasha"]["timeline"]:
-        if period["start"] <= "2026-05-25" < period["end"]:
+        if period["start"] <= today < period["end"]:
             current_dasha = period
             break
 
@@ -217,6 +222,7 @@ def generate_report(data: BirthData):
             "report_id": report_id,
             "name": data.name,
             "report_type": data.report_type,
+            "language": data.language,
             "input": {
                 "birth_date": data.birth_date,
                 "birth_time": data.birth_time,
@@ -225,6 +231,7 @@ def generate_report(data: BirthData):
             "current_mahadasha": current_dasha,
             "calculation": chart["calculation"],
             "chart": chart["chart"],
+            "transits": chart.get("transits"),
             "dasha_timeline": chart["dasha"]["timeline"],
             "report": report
         }
@@ -233,12 +240,14 @@ def generate_report(data: BirthData):
             "report_id": report_id,
             "name": data.name,
             "report_type": data.report_type,
+            "language": data.language,
             "input": {
                 "birth_date": data.birth_date,
                 "birth_time": data.birth_time,
                 "birth_place": data.birth_place
             },
             "current_mahadasha": current_dasha,
+            "transits": chart.get("transits"),
             "report": report
         }
 
