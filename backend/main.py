@@ -283,10 +283,14 @@ def generate_report(data: BirthData):
         report_text=report,
         payment_status=payment_status
     )
+    display_report_id = f"SK{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    generated_on = datetime.now().strftime("%d/%m/%Y")
 
     if data.report_type.lower().strip() == "premium":
         response = {
             "report_id": report_id,
+            "display_report_id": display_report_id,
+            "generated_on": generated_on,
             "name": data.name,
             "report_type": data.report_type,
             "report_style": data.report_style,
@@ -308,6 +312,8 @@ def generate_report(data: BirthData):
     else:
         response = {
             "report_id": report_id,
+            "display_report_id": display_report_id,
+            "generated_on": generated_on,
             "name": data.name,
             "report_type": data.report_type,
             "report_style": data.report_style,

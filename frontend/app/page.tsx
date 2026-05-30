@@ -8,6 +8,8 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
 type ReportData = {
+  display_report_id?: string;
+  generated_on?: string;
   name: string;
   report_type: string;
   cover_title?: string;
@@ -627,6 +629,8 @@ export default function Home() {
             <p><strong>Name:</strong> ${escapeHtml(report.name)}</p>
           <p><strong>Report Type:</strong> ${escapeHtml(report.report_type_label || getReportStyleLabel(report.report_style || "full"))}</p>
           <p><strong>Language:</strong> ${escapeHtml(formatLabel(report.language ?? "hindi"))}</p>
+          <p><strong>Report ID:</strong> ${escapeHtml(report.display_report_id ?? "-")}</p>
+          <p><strong>Generated On:</strong> ${escapeHtml(report.generated_on ?? "-")}</p>
             <p><strong>Mahadasha:</strong> ${escapeHtml(report.current_mahadasha?.planet ?? "-")}</p>
             <p><strong>Period:</strong> ${escapeHtml(report.current_mahadasha?.start ?? "-")} to ${escapeHtml(report.current_mahadasha?.end ?? "-")}</p>
           </div>
@@ -656,6 +660,23 @@ export default function Home() {
       const blocks = Array.from(flow.children) as HTMLElement[];
       let y = pageMargin;
 
+      const addCanvasPdfFooters = () => {
+        const totalPages = pdf.getNumberOfPages();
+
+        for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+          pdf.setPage(pageNumber);
+          pdf.setDrawColor(225, 225, 235);
+          pdf.line(pageMargin, pdfHeight - 12, pdfWidth - pageMargin, pdfHeight - 12);
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(9);
+          pdf.setTextColor(95, 95, 105);
+          pdf.text("Shrivinayaka AI Astrology", pageMargin, pdfHeight - 7);
+          pdf.text(`Page ${pageNumber} of ${totalPages}`, pdfWidth - pageMargin, pdfHeight - 7, {
+            align: "right",
+          });
+        }
+      };
+
       for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
         const block = blocks[blockIndex];
         const tagName = block.tagName.toLowerCase();
@@ -684,6 +705,7 @@ export default function Home() {
         y += finalHeight + 3.5;
       }
 
+      addCanvasPdfFooters();
       document.body.removeChild(pdfElement);
 
       pdf.save("shrivinayaka-astrology-report.pdf");
@@ -722,20 +744,28 @@ export default function Home() {
         setColor(ink);
       };
 
-      const addFooter = () => {
+      const addFooter = (pageNumber = pdf.getNumberOfPages(), totalPages = pdf.getNumberOfPages()) => {
         pdf.setDrawColor(225, 225, 235);
         pdf.line(margin, pageHeight - 16, pageWidth - margin, pageHeight - 16);
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(9);
         setColor(muted);
         pdf.text("Shrivinayaka AI Astrology", margin, pageHeight - 9);
-        pdf.text(`Page ${pdf.getNumberOfPages()}`, pageWidth - margin, pageHeight - 9, {
+        pdf.text(`Page ${pageNumber} of ${totalPages}`, pageWidth - margin, pageHeight - 9, {
           align: "right",
         });
       };
 
+      const addFooters = () => {
+        const totalPages = pdf.getNumberOfPages();
+
+        for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+          pdf.setPage(pageNumber);
+          addFooter(pageNumber, totalPages);
+        }
+      };
+
       const newPage = () => {
-        addFooter();
         pdf.addPage();
         y = 24;
         resetTextStyle();
@@ -842,10 +872,10 @@ export default function Home() {
       };
 
       const drawInfoCard = () => {
-        ensureSpace(42);
+        ensureSpace(66);
         pdf.setFillColor(palePurple[0], palePurple[1], palePurple[2]);
         pdf.setDrawColor(220, 205, 250);
-        pdf.roundedRect(margin, y, contentWidth, 38, 3, 3, "FD");
+        pdf.roundedRect(margin, y, contentWidth, 58, 3, 3, "FD");
 
         keyValue("Name", report.name, margin + 7, y + 11);
         keyValue(
@@ -854,19 +884,21 @@ export default function Home() {
           margin + 70,
           y + 11
         );
+        keyValue("Report ID", report.display_report_id ?? "-", margin + 7, y + 29);
+        keyValue("Generated On", report.generated_on ?? "-", margin + 70, y + 29);
         keyValue(
           "Current Mahadasha",
           `${report.current_mahadasha?.planet ?? "-"} Mahadasha`,
           margin + 7,
-          y + 27
+          y + 47
         );
         keyValue(
           "Period",
           `${report.current_mahadasha?.start ?? "-"} to ${report.current_mahadasha?.end ?? "-"}`,
           margin + 70,
-          y + 27
+          y + 47
         );
-        y += 48;
+        y += 68;
       };
 
       const drawChart = () => {
@@ -1062,7 +1094,7 @@ export default function Home() {
       drawTransits();
       drawDashaTimeline();
       writeReport();
-      addFooter();
+      addFooters();
 
       pdf.save("shrivinayaka-astrology-report.pdf");
     } catch (error) {
