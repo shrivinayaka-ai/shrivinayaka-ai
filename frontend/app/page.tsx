@@ -10,6 +10,9 @@ const API_BASE_URL =
 type ReportData = {
   name: string;
   report_type: string;
+  cover_title?: string;
+  report_type_label?: string;
+  report_style?: string;
   language?: string;
   input: {
     birth_date: string;
@@ -37,14 +40,34 @@ type ReportData = {
   report: string;
 };
 
+const getReportStyleLabel = (style: string) => {
+  if (style === "consultation") return "Personal Consultation";
+  if (style === "full_plus_consultation") return "Complete + Consultation";
+  return "Complete Astrology";
+};
+
+const getCoverTitle = (style: string) => {
+  if (style === "consultation") return "Personal Consultation Report";
+  if (style === "full_plus_consultation") {
+    return "Complete Astrology Report + Personal Consultation";
+  }
+
+  return "Complete Astrology Report";
+};
+
 export default function Home() {
   const [formData, setFormData] = useState({
     name: "",
     birth_date: "",
     birth_time: "",
     birth_place: "",
-    report_type: "free",
+    report_type: "premium",
+    report_style: "full",
     language: "english",
+    current_concern: "general",
+    employment_status: "not_selected",
+    relationship_status: "not_selected",
+    main_question: "",
   });
 
   const [loading, setLoading] = useState(false);
@@ -58,6 +81,25 @@ export default function Home() {
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
+    });
+  };
+
+  const handleBirthDateChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    let value = e.target.value.replace(/\D/g, "");
+
+    if (value.length > 2) {
+      value = value.slice(0, 2) + "/" + value.slice(2);
+    }
+
+    if (value.length > 5) {
+      value = value.slice(0, 5) + "/" + value.slice(5);
+    }
+
+    setFormData({
+      ...formData,
+      birth_date: value,
     });
   };
 
@@ -98,6 +140,14 @@ export default function Home() {
   const generateReport = async () => {
     console.log("Generate Report clicked", formData);
 
+    const dateRegex =
+      /^(0[1-9]|[12][0-9]|3[01])\/(0[1-9]|1[0-2])\/(19|20)\d\d$/;
+
+    if (!dateRegex.test(formData.birth_date)) {
+      alert("Please enter Date of Birth as DD/MM/YYYY");
+      return;
+    }
+
     if (formData.report_type.toLowerCase().trim() === "premium") {
       await generatePremiumReport();
       return;
@@ -111,7 +161,15 @@ export default function Home() {
       setLoading(true);
 
       const orderResponse = await axios.post(
-        `${API_BASE_URL}/create-payment-order`
+        `${API_BASE_URL}/create-payment-order`,
+        {
+          report_style: formData.report_style,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
       );
 
       const { order_id, amount, currency, key } = orderResponse.data;
@@ -166,12 +224,22 @@ export default function Home() {
       .map((line) => {
         const trimmed = line.trim();
 
+        if (!trimmed) {
+          return line;
+        }
+
         if (
-          trimmed &&
-          !trimmed.startsWith("#") &&
-          !trimmed.startsWith("- ") &&
+          trimmed.startsWith("#") ||
+          trimmed.startsWith("- ") ||
+          trimmed.startsWith("• ") ||
+          /^\d+\./.test(trimmed)
+        ) {
+          return line;
+        }
+
+        if (
           trimmed.endsWith(":") &&
-          trimmed.length <= 70
+          trimmed.length <= 60
         ) {
           return `### ${trimmed.replace(/:$/, "")}`;
         }
@@ -231,11 +299,20 @@ export default function Home() {
             }
 
             if (trimmed.startsWith("## ")) {
-              return `<h2>${escapeHtml(trimmed.replace(/^##\s+/, ""))}</h2>`;
+              const heading = escapeHtml(trimmed.replace(/^##\s+/, ""));
+              const className = heading.includes("PART 2")
+                ? " class=\"part-heading\""
+                : "";
+
+              return `<h2${className}>${heading}</h2>`;
             }
 
             if (trimmed.startsWith("### ")) {
               return `<h3>${escapeHtml(trimmed.replace(/^###\s+/, ""))}</h3>`;
+            }
+
+            if (trimmed.startsWith("#### ")) {
+              return `<h4>${escapeHtml(trimmed.replace(/^####\s+/, ""))}</h4>`;
             }
 
             if (trimmed.startsWith("- ")) {
@@ -420,7 +497,7 @@ export default function Home() {
           }
 
           .pdf-card {
-            padding: 10px;
+            padding: 12px;
                 border: 1px solid #e5e0f5;
                 border-radius: 8px;
                 background: #fbfbfd;
@@ -435,18 +512,22 @@ export default function Home() {
 
           .pdf-card strong {
             color: #202024;
-            font-size: 14px;
+            font-size: 16px;
+            text-transform: uppercase;
           }
 
           .pdf-card span {
-            margin-top: 3px;
+            margin-top: 5px;
             color: #333333;
+            font-size: 18px;
+            font-weight: 600;
           }
 
           .pdf-card small {
-            margin-top: 3px;
+            margin-top: 5px;
             color: #66606f;
-            font-size: 12px;
+            font-size: 14px;
+            line-height: 1.5;
           }
 
           .pdf-list p {
@@ -460,9 +541,9 @@ export default function Home() {
             margin: 30px 0 20px;
             padding: 18px 0 8px;
             color: #750606;
-            font-size: 32px;
-            font-weight: 800;
-            line-height: 1.65;
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1.7;
             break-after: avoid;
             box-sizing: border-box;
             overflow: visible;
@@ -471,11 +552,11 @@ export default function Home() {
           }
 
           .pdf-content h2 {
-            margin: 26px 0 12px;
-            padding: 18px 0 8px;
+            margin: 20px 0 12px;
+            padding: 14px 0 6px;
             color: #750606;
-            font-size: 21px;
-            font-weight: 800;
+            font-size: 22px;
+            font-weight: 700;
             line-height: 1.7;
             break-after: avoid;
             box-sizing: border-box;
@@ -483,33 +564,52 @@ export default function Home() {
             font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
           }
 
+          .pdf-content h2.part-heading {
+            margin-bottom: 25px;
+          }
+
           .pdf-content h3 {
-            margin: 20px 0 8px;
-            padding: 16px 0 8px;
+            margin: 20px 0 12px;
+            padding: 14px 0 6px;
             color: #750606;
-            font-size: 17px;
-            font-weight: 800;
-            line-height: 1.75;
+            font-size: 22px;
+            font-weight: 700;
+            line-height: 1.7;
             break-after: avoid;
             box-sizing: border-box;
             overflow: visible;
             font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
           }
 
+          .pdf-content h4 {
+            margin: 16px 0 8px;
+            padding: 8px 0 4px;
+            color: #750606;
+            font-size: 15px;
+            font-weight: 800;
+            line-height: 1.6;
+            break-after: avoid;
+            font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
+          }
+
           .pdf-content p {
-            margin: 0 0 12px;
-            padding: 6px 0 7px;
+            margin: 0 0 14px;
+            padding: 4px 0 5px;
+            font-size: 16px;
+            line-height: 1.8;
+            font-weight: 400;
             text-align: left;
             word-break: normal;
             overflow-wrap: anywhere;
             break-inside: avoid;
-            line-height: 1.85;
             box-sizing: border-box;
             overflow: visible;
           }
 
           .pdf-content .bullet {
-            margin-left: 16px;
+            margin-left: 14px;
+            font-size: 16px;
+            line-height: 1.8;
           }
 
           .pdf-content .gap {
@@ -520,12 +620,12 @@ export default function Home() {
         <main class="pdf-content pdf-flow">
           <div class="pdf-header">
             <h1 class="pdf-brand">Shrivinayaka AI Astrology</h1>
-            <p class="pdf-subtitle">Personal Vedic Astrology Report</p>
+            <p class="pdf-subtitle">${escapeHtml(report.cover_title || getCoverTitle(report.report_style || "full"))}</p>
           </div>
 
           <div class="pdf-info">
             <p><strong>Name:</strong> ${escapeHtml(report.name)}</p>
-          <p><strong>Report Type:</strong> ${escapeHtml(formatLabel(report.report_type))}</p>
+          <p><strong>Report Type:</strong> ${escapeHtml(report.report_type_label || getReportStyleLabel(report.report_style || "full"))}</p>
           <p><strong>Language:</strong> ${escapeHtml(formatLabel(report.language ?? "hindi"))}</p>
             <p><strong>Mahadasha:</strong> ${escapeHtml(report.current_mahadasha?.planet ?? "-")}</p>
             <p><strong>Period:</strong> ${escapeHtml(report.current_mahadasha?.start ?? "-")} to ${escapeHtml(report.current_mahadasha?.end ?? "-")}</p>
@@ -717,22 +817,6 @@ export default function Home() {
         pdf.text(value || "-", x, rowY + 6);
       };
 
-      const formatPdfLabel = (value?: string) => {
-        if (!value) {
-          return "-";
-        }
-
-        if (value.toLowerCase() === "hindi") {
-          return "Hindi";
-        }
-
-        if (value.toLowerCase() === "hinglish") {
-          return "Hinglish";
-        }
-
-        return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
-      };
-
       const drawHeader = () => {
         pdf.setFillColor(35, 20, 65);
         pdf.rect(0, 0, pageWidth, 46, "F");
@@ -749,8 +833,10 @@ export default function Home() {
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(11);
         pdf.setTextColor(224, 213, 255);
-        pdf.text("Personal Vedic Astrology Report", pageWidth / 2, 31, {
+        const coverTitle = report.cover_title || getCoverTitle(report.report_style || "full");
+        pdf.text(coverTitle, pageWidth / 2, 31, {
           align: "center",
+          maxWidth: contentWidth,
         });
         y = 60;
       };
@@ -762,7 +848,12 @@ export default function Home() {
         pdf.roundedRect(margin, y, contentWidth, 38, 3, 3, "FD");
 
         keyValue("Name", report.name, margin + 7, y + 11);
-        keyValue("Report Type", formatPdfLabel(report.report_type), margin + 70, y + 11);
+        keyValue(
+          "Report Type",
+          report.report_type_label || getReportStyleLabel(report.report_style || "full"),
+          margin + 70,
+          y + 11
+        );
         keyValue(
           "Current Mahadasha",
           `${report.current_mahadasha?.planet ?? "-"} Mahadasha`,
@@ -788,7 +879,7 @@ export default function Home() {
         const gap = 4;
         const columns = 3;
         const cardWidth = (contentWidth - gap * (columns - 1)) / columns;
-        const cardHeight = 18;
+        const cardHeight = 28;
 
         entries.forEach(([planet, data]: any, index) => {
           const col = index % columns;
@@ -803,17 +894,78 @@ export default function Home() {
           pdf.roundedRect(x, y, cardWidth, cardHeight, 2, 2, "FD");
 
           pdf.setFont("helvetica", "bold");
-          pdf.setFontSize(10);
+          pdf.setFontSize(12);
           setColor(ink);
-          pdf.text(planet, x + 4, y + 6);
+          pdf.text(planet.toUpperCase(), x + 4, y + 7);
+
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(13.5);
+          setColor(ink);
+          pdf.text(data.sign ?? "-", x + 4, y + 15);
 
           pdf.setFont("helvetica", "normal");
-          pdf.setFontSize(9.5);
+          pdf.setFontSize(11.5);
           setColor(muted);
           pdf.text(
-            `${data.sign} ${data.degree ? `| ${data.degree}` : ""} | House ${data.house}`,
+            `${data.degree ? `${data.degree} | ` : ""}House ${data.house}`,
             x + 4,
-            y + 13
+            y + 23
+          );
+
+          if (col === columns - 1 || index === entries.length - 1) {
+            y += cardHeight + 5;
+          }
+        });
+
+        y += 3;
+      };
+
+      const drawTransits = () => {
+        if (!report.transits?.transits) {
+          return;
+        }
+
+        sectionHeading("Current Transits");
+        const entries = Object.entries(report.transits.transits);
+        const gap = 4;
+        const columns = 2;
+        const cardWidth = (contentWidth - gap * (columns - 1)) / columns;
+        const cardHeight = 36;
+
+        entries.forEach(([planet, data]: any, index) => {
+          const col = index % columns;
+          const x = margin + col * (cardWidth + gap);
+
+          if (col === 0) {
+            ensureSpace(cardHeight + 5);
+          }
+
+          pdf.setFillColor(250, 250, 252);
+          pdf.setDrawColor(230, 230, 238);
+          pdf.roundedRect(x, y, cardWidth, cardHeight, 2, 2, "FD");
+
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(12.5);
+          setColor(ink);
+          pdf.text(planet.toUpperCase(), x + 4, y + 7);
+
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(14);
+          setColor(ink);
+          pdf.text(data.sign ?? "-", x + 4, y + 16);
+
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(11.5);
+          setColor(muted);
+          pdf.text(
+            `${planet} in ${data.house_from_ascendant ?? "-"}th House`,
+            x + 4,
+            y + 25
+          );
+          pdf.text(
+            `${data.house_from_moon ?? "-"}th House from Moon`,
+            x + 4,
+            y + 32
           );
 
           if (col === columns - 1 || index === entries.length - 1) {
@@ -868,21 +1020,24 @@ export default function Home() {
                 lineFactor: 1.25,
               });
             } else if (line.startsWith("## ")) {
+              const heading = line.replace(/^##\s+/, "");
+
               writeWrapped(line.replace(/^##\s+/, ""), {
+                size: 14.5,
+                style: "bold",
+                color: gold,
+                before: 8,
+                after: heading.includes("PART 2") ? 10 : 5,
+                lineFactor: 1.28,
+              });
+            } else if (line.startsWith("### ")) {
+              writeWrapped(line.replace(/^###\s+/, ""), {
                 size: 14.5,
                 style: "bold",
                 color: gold,
                 before: 8,
                 after: 5,
                 lineFactor: 1.28,
-              });
-            } else if (line.startsWith("### ")) {
-              writeWrapped(line.replace(/^###\s+/, ""), {
-                size: 12.5,
-                style: "bold",
-                color: purple,
-                before: 5,
-                after: 4,
               });
             } else if (line.startsWith("- ")) {
               writeWrapped(`• ${line.replace(/^-\s+/, "")}`, {
@@ -904,6 +1059,7 @@ export default function Home() {
       drawHeader();
       drawInfoCard();
       drawChart();
+      drawTransits();
       drawDashaTimeline();
       writeReport();
       addFooter();
@@ -941,11 +1097,14 @@ export default function Home() {
           />
 
           <input
-            type="date"
+            type="text"
             name="birth_date"
+            placeholder="DD/MM/YYYY"
             value={formData.birth_date}
+            inputMode="numeric"
+            maxLength={10}
             className="w-full p-3 rounded-xl bg-zinc-800"
-            onChange={handleChange}
+            onChange={handleBirthDateChange}
           />
 
           <input
@@ -975,6 +1134,27 @@ export default function Home() {
             <option value="premium">Premium Report</option>
           </select>
 
+          {formData.report_type === "premium" && (
+            <>
+              <select
+            name="report_style"
+            value={formData.report_style}
+            className="w-full p-3 rounded-xl bg-zinc-800"
+            onChange={handleChange}
+          >
+            <option value="consultation">
+              Personal Consultation Report - ₹75
+            </option>
+            <option value="full">
+              Complete Astrology Report - ₹125
+            </option>
+            <option value="full_plus_consultation">
+              Complete Astrology + Consultation - ₹199
+            </option>
+          </select>
+            </>
+          )}
+
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-300">
               Language
@@ -991,6 +1171,88 @@ export default function Home() {
               <option value="hinglish">Hinglish</option>
             </select>
           </div>
+
+          {formData.report_type === "premium" && (
+            <>
+          {formData.report_style !== "consultation" && (
+            <>
+              <select
+                name="current_concern"
+                value={formData.current_concern}
+                className="w-full p-3 rounded-xl bg-zinc-800"
+                onChange={handleChange}
+              >
+                <option value="general">General Guidance</option>
+                <option value="career">Career</option>
+                <option value="money">Money</option>
+                <option value="relationship">Relationship</option>
+                <option value="marriage">Marriage</option>
+                <option value="health">Health</option>
+                <option value="family">Family</option>
+                <option value="purpose">Purpose</option>
+              </select>
+
+              <select
+                name="employment_status"
+                value={formData.employment_status}
+                className="w-full p-3 rounded-xl bg-zinc-800"
+                onChange={handleChange}
+              >
+                <option value="not_selected">Employment Status</option>
+                <option value="employed">Employed</option>
+                <option value="business">Business</option>
+                <option value="freelance">Freelance</option>
+                <option value="unemployed">Unemployed</option>
+                <option value="retired">Retired</option>
+              </select>
+
+              <select
+                name="relationship_status"
+                value={formData.relationship_status}
+                className="w-full p-3 rounded-xl bg-zinc-800"
+                onChange={handleChange}
+              >
+                <option value="not_selected">Relationship Status</option>
+                <option value="single">Single</option>
+                <option value="married">Married</option>
+                <option value="divorced">Divorced</option>
+                <option value="complicated">Complicated</option>
+              </select>
+            </>
+          )}
+
+          {formData.report_style !== "full" && (
+            <>
+              <textarea
+                name="main_question"
+                placeholder="Your main question (optional)"
+                value={formData.main_question}
+                className="w-full p-3 rounded-xl bg-zinc-800"
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    main_question: e.target.value,
+                  })
+                }
+              />
+
+              <div className="rounded-xl border border-purple-500/40 bg-purple-950/30 p-4 text-sm text-gray-300">
+                <p className="mb-2 font-bold text-white">
+                  One Primary Question Only
+                </p>
+                <ul className="list-disc space-y-1 pl-5">
+                  <li>When will my career improve?</li>
+                  <li>Will marriage happen?</li>
+                  <li>How will health remain?</li>
+                </ul>
+                <p className="mt-3">
+                  Only the first question will be analyzed.
+                </p>
+              </div>
+            </>
+          )}
+            </>
+          )}
 
           <button
             type="button"

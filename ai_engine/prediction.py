@@ -39,9 +39,19 @@ def validate_dasha_mentions(report, expected_planet):
     return wrong_planets
 
 
-def generate_full_prediction(chart_data, report_type="free", language="english"):
+def generate_full_prediction(
+    chart_data,
+    report_type="free",
+    language="english",
+    user_context=None,
+    report_style="full"
+):
     report_type = report_type.lower().strip()
     language = language.lower().strip()
+    report_style = report_style.lower().strip()
+
+    if user_context is None:
+        user_context = {}
 
     current_dasha = get_current_dasha(chart_data["dasha"])
 
@@ -65,7 +75,146 @@ def generate_full_prediction(chart_data, report_type="free", language="english")
         "current_mahadasha_years": current_dasha["years"]
     }
 
-    if report_type == "premium":
+    if report_style in ("consultation", "question"):
+        report_instruction = f"""
+Write a focused astrology consultation that answers the user's main question.
+
+IMPORTANT:
+
+The user has paid for analysis of ONE primary question.
+
+If multiple questions appear, identify the first major question and answer only that question.
+
+Do not attempt to answer every question.
+
+Ignore secondary questions.
+
+Do NOT write a full life report.
+
+Avoid unrelated sections such as personality, marriage, career, money or health unless they are directly relevant to the user's question.
+
+The report should usually be 2-3 pages, concise, practical and direct.
+
+For Personal Consultation Report:
+
+Keep the report focused and concise.
+
+Target length:
+4-5 PDF pages maximum.
+
+Brief Chart Summary:
+Maximum 150 words.
+
+Analyze only planets, houses, dasha and transits directly connected to the user's first question.
+
+Do not write full personality, marriage, career, finance or health sections unless directly relevant to the question.
+
+Use this format exactly:
+
+# Personal Consultation Astrology Report
+
+## Brief Chart Summary
+Give only the chart factors directly relevant to the user's question.
+
+## Factors Relevant To Question
+Analyze the houses, planets and chart indicators connected to the question.
+
+Examples:
+- Mother health: 4th house, Moon, relevant house lord, current timing
+- Court case: 6th house, 8th house, Mars, Saturn, current timing
+- Job/career: 10th house, 6th house, Saturn, Sun, current timing
+- Marriage: 7th house, Venus/Jupiter, 2nd house, 11th house, current timing
+- Money: 2nd house, 11th house, 10th house, Jupiter, current timing
+
+Do not force unrelated topics into the report.
+
+## Current Dasha Impact
+Explain how ONLY the current Mahadasha affects the user's question.
+
+Current Mahadasha:
+{current_dasha["planet"]} Mahadasha
+{current_dasha["start"]} to {current_dasha["end"]}
+
+## Current Transit Impact
+Explain only the current Saturn, Jupiter, Rahu and Ketu transit effects relevant to the question.
+
+Use natural headings like:
+### Saturn in 10th House
+### Saturn in 12th House from Moon
+
+For every transit sub-section, start with:
+
+Main Effect:
+[one short practical line]
+
+Then write the explanation.
+
+Example:
+
+### Saturn in 10th House
+
+Main Effect:
+Career pressure and slow but steady progress.
+
+[Detailed explanation]
+
+Do not include every transit if it is not relevant. But if a transit strongly affects the question, explain it clearly.
+
+## Direct Answer
+Format exactly like this:
+
+Your Question
+
+[Rewrite the user's question in clear language]
+
+Direct Answer
+
+[Provide the answer]
+
+Do not skip the question.
+
+Always display both:
+- User Question
+- Direct Answer
+
+They must be in separate paragraphs.
+
+Leave one blank line between them.
+
+For Hindi reports, format exactly:
+
+आपका प्रश्न
+
+[यूज़र के प्रश्न को साफ और सरल भाषा में दोहराएं]
+
+सीधा उत्तर
+
+[उत्तर]
+
+दोनों को अलग-अलग पैराग्राफ में दिखाएं।
+
+प्रश्न और उत्तर एक ही लाइन में न लिखें।
+
+Never start the Direct Answer section with the answer itself.
+
+Always display the question first, then the answer.
+
+Do not give a vague answer.
+
+## Time Period
+Give realistic timing tendencies if applicable.
+
+Avoid guaranteed dates.
+
+## Practical Advice
+Give practical steps the user can take in this situation.
+
+## Final Observation
+End with a clear astrologer's final observation.
+
+The final observation should feel like a grounded verdict, not motivation and not a confidence score.
+"""
+    elif report_type == "premium":
         report_instruction = f"""
 Write a deeply personalized premium Vedic astrology report.
 
@@ -173,27 +322,59 @@ Do this for all four planets:
 Required format:
 
 ### Saturn in 10th House
+Start with:
+Main Effect:
+[one short practical line]
+
 Explain result from Ascendant.
 
 ### Saturn in 12th House from Moon
+Start with:
+Main Effect:
+[one short practical line]
+
 Explain emotional/mental result from Moon.
 
 ### Jupiter in 1st House
+Start with:
+Main Effect:
+[one short practical line]
+
 Explain result from Ascendant.
 
 ### Jupiter in 3rd House from Moon
+Start with:
+Main Effect:
+[one short practical line]
+
 Explain emotional/mental result from Moon.
 
 ### Rahu in 9th House
+Start with:
+Main Effect:
+[one short practical line]
+
 Explain result from Ascendant.
 
 ### Rahu in 11th House from Moon
+Start with:
+Main Effect:
+[one short practical line]
+
 Explain emotional/mental result from Moon.
 
 ### Ketu in 3rd House
+Start with:
+Main Effect:
+[one short practical line]
+
 Explain result from Ascendant.
 
 ### Ketu in 5th House from Moon
+Start with:
+Main Effect:
+[one short practical line]
+
 Explain emotional/mental result from Moon.
 
 Do not skip Moon-based placement for any planet.
@@ -264,6 +445,111 @@ End with:
 - balanced guidance
 - empowerment mindset
 
+## 11. Direct Answer Section
+If the user has asked a specific question, create the section title based on Report Language:
+
+English:
+### Direct Answer to Your Question
+
+Hindi:
+### आपके प्रश्न का सीधा उत्तर
+
+Hinglish:
+### Aapke Sawal Ka Seedha Jawaab
+
+Create the following sub-headings:
+
+### आपका प्रश्न
+
+### संक्षिप्त उत्तर
+
+### कुंडली क्या संकेत देती है
+
+### संभावित समय अवधि
+
+### व्यावहारिक सलाह
+
+Do not use numbering.
+
+Do not write:
+1)
+2)
+3)
+
+Use clean headings only.
+
+Under "आपका प्रश्न", rewrite and repeat the user's question in a clean, professional way.
+
+Do not copy the user's raw question word-for-word if it sounds informal, emotional, unstructured or grammatically rough.
+
+Rewrite it into a clear client-style question while keeping the original meaning.
+
+Example:
+Instead of:
+"I don't have any job and not married yet. There is no money inflow..."
+
+Write:
+"I am currently unemployed, unmarried, and do not have a regular income source. When can my financial situation improve?"
+
+Hindi style:
+"मैं वर्तमान में बेरोजगार हूं, शादी नहीं हुई है और नियमित आय का कोई स्रोत नहीं है। आर्थिक स्थिति कब बेहतर होगी?"
+
+Hinglish style:
+"Main abhi unemployed hoon, shaadi nahi hui hai aur regular income source nahi hai. Financial situation kab improve ho sakti hai?"
+
+At the end provide:
+
+Final Observation
+
+Use this as a natural astrologer's final verdict, not as a machine-like score.
+
+Do not write:
+"Confidence Level: Medium"
+or
+"Reason: ..."
+
+Instead write a final observation that clearly says whether the chart and current timing are supportive, mixed, delayed, or uncertain.
+
+Base the final observation on:
+- Natal chart
+- Current Mahadasha
+- Current major transits
+
+If the chart and timing support the same outcome, say it clearly but without guarantees.
+
+If signals are mixed, explain that improvement is possible but delays, pressure or extra effort are also visible.
+
+If timing factors contradict each other, explain that the situation is uncertain and needs patience.
+
+Example:
+
+You asked:
+"When will my finances improve?"
+
+Short Answer:
+Financial improvement is possible within the next 6-12 months, but stronger stability may take 1-3 years.
+
+Why:
+Rahu Mahadasha encourages new opportunities while Saturn is slowing career growth and demanding patience.
+
+Time Period:
+Small income opportunities may appear first through freelance work, consulting or temporary projects.
+
+Practical Advice:
+Focus on building one income source consistently instead of changing direction repeatedly.
+
+Final Observation:
+
+Kundli and current timing suggest that income opportunities can improve, but stability may build slowly. Consistent effort, skill development and choosing the right direction will matter more than sudden luck.
+
+Hindi example:
+
+अंतिम निष्कर्ष:
+
+कुंडली और वर्तमान ग्रह दशाएं यह संकेत देती हैं कि आने वाले समय में आय के अवसर बढ़ सकते हैं। हालांकि स्थिरता धीरे-धीरे बनेगी और इसके लिए लगातार प्रयास, कौशल विकास और सही दिशा में काम करना जरूरी रहेगा।
+
+Keep this section concise and direct.
+
 WRITING STYLE:
 - Warm
 - Human
@@ -304,6 +590,188 @@ Give 4-5 lines only.
 
 End with:
 "For a detailed personalized report with remedies and deeper timing analysis, you can unlock the premium report."
+"""
+
+    if (
+        report_type == "premium"
+        and report_style in ("full", "full_plus_consultation")
+        and "## 11. Direct Answer Section" in report_instruction
+    ):
+        complete_report_instruction = (
+            report_instruction
+            .replace("# Premium Vedic Astrology Report", "# Complete Astrology Report")
+            .split("## 11. Direct Answer Section")[0]
+            .rstrip()
+        )
+
+        complete_report_instruction += """
+
+WRITING STYLE:
+- Warm
+- Human
+- Insightful
+- Deeply personalized
+- Practical
+- Emotionally intelligent
+- Like a real astrologer speaking directly to the person
+
+AVOID:
+- fear-based language
+- guaranteed predictions
+- medical diagnosis
+- exaggerated mystical claims
+"""
+
+        consultation_report_instruction = f"""
+Write a focused personal consultation analysis that answers the user's main question.
+
+IMPORTANT:
+The user has paid for analysis of ONE primary question.
+
+Keep the personal consultation focused and concise.
+
+Target length for this Part 2 consultation:
+4-5 PDF pages maximum when generated by itself, and shorter when added after a full report.
+
+Brief Chart Summary:
+Maximum 150 words.
+
+Analyze only planets, houses, dasha and transits directly connected to the user's first question.
+
+Do not write full personality, marriage, career, finance or health sections unless directly relevant to the question.
+
+If multiple questions appear, identify the first major question and answer only that question.
+Do not attempt to answer every question.
+Ignore secondary questions.
+
+Use this format exactly:
+
+## PART 2 - Personal Consultation Analysis
+
+## Brief Chart Summary
+Give only the chart factors directly relevant to the user's question.
+
+## Factors Relevant To Question
+Analyze the houses, planets and chart indicators connected to the question.
+
+Examples:
+- Mother health: 4th house, Moon, relevant house lord, current timing
+- Court case: 6th house, 8th house, Mars, Saturn, current timing
+- Job/career: 10th house, 6th house, Saturn, Sun, current timing
+- Marriage: 7th house, Venus/Jupiter, 2nd house, 11th house, current timing
+- Money: 2nd house, 11th house, 10th house, Jupiter, current timing
+
+## Current Dasha Impact
+Explain how ONLY the current Mahadasha affects the user's question.
+
+Current Mahadasha:
+{current_dasha["planet"]} Mahadasha
+{current_dasha["start"]} to {current_dasha["end"]}
+
+## Current Transit Impact
+Explain only the current Saturn, Jupiter, Rahu and Ketu transit effects relevant to the question.
+
+Use natural headings like:
+### Saturn in 10th House
+### Saturn in 12th House from Moon
+
+For every transit sub-section, start with:
+
+Main Effect:
+[one short practical line]
+
+Then write the explanation.
+
+Example:
+
+### Saturn in 10th House
+
+Main Effect:
+Career pressure and slow but steady progress.
+
+[Detailed explanation]
+
+## Direct Answer
+Format exactly like this:
+
+Your Question
+
+[Rewrite the user's question in clear language]
+
+Direct Answer
+
+[Provide the answer]
+
+Do not skip the question.
+
+Always display both:
+- User Question
+- Direct Answer
+
+They must be in separate paragraphs.
+
+Leave one blank line between them.
+
+For Hindi reports, format exactly:
+
+आपका प्रश्न
+
+[यूज़र के प्रश्न को साफ और सरल भाषा में दोहराएं]
+
+सीधा उत्तर
+
+[उत्तर]
+
+दोनों को अलग-अलग पैराग्राफ में दिखाएं।
+
+प्रश्न और उत्तर एक ही लाइन में न लिखें।
+
+Never start the Direct Answer section with the answer itself.
+
+Always display the question first, then the answer.
+
+## Time Period
+Give realistic timing tendencies if applicable. Avoid guaranteed dates.
+
+## Practical Advice
+Give practical steps the user can take in this situation.
+
+## Final Observation
+End with a clear astrologer's final observation.
+
+The final observation should feel like a grounded verdict, not motivation and not a confidence score.
+"""
+
+        if report_style == "full":
+            report_instruction = (
+                complete_report_instruction
+                + "\n\nDo not create a Direct Answer section in this complete report."
+            )
+        else:
+            complete_part_instruction = (
+                complete_report_instruction
+                .replace("# Complete Astrology Report", "")
+                .strip()
+            )
+
+            report_instruction = f"""
+Write a complete paid report that feels like two separate products in one.
+
+Use this title:
+
+# Complete Astrology Report + Personal Consultation
+
+First write:
+
+## PART 1 - Complete Astrology Report
+
+Then follow this complete report structure:
+
+{complete_part_instruction}
+
+After Part 1, write the personal consultation as a separate product:
+
+{consultation_report_instruction}
 """
 
     language_instruction = ""
@@ -555,6 +1023,16 @@ Prefer everyday language.
 
 The report should be easy to understand for someone with no astrology knowledge.
 
+Do not use #### headings.
+
+Use only:
+# for main title
+## for major sections
+### for sub-sections
+
+For advice points, use bullet points only.
+Do not write standalone bold advice lines as headings.
+
 Avoid repeating the same meaning in different words.
 
 Each paragraph should add new insight.
@@ -591,6 +1069,9 @@ Do not mention any other planet as Mahadasha.
 Report Type:
 {report_type}
 
+Report Style:
+{report_style}
+
 Report Language:
 {language}
 
@@ -599,6 +1080,67 @@ Language Instructions:
 
 Strictly follow the selected report language. Do not switch to English unless Report Language is english.
 Keep all report headings in English for every language.
+
+User Current Life Context:
+{user_context}
+
+IMPORTANT:
+
+If the user has provided personal information such as:
+
+- unemployed
+- financial problems
+- single
+- married
+- health issues
+- career struggles
+- relationship issues
+
+then first acknowledge the user's situation before giving astrological interpretation.
+
+Example:
+
+User says:
+"I am unemployed."
+
+Write:
+
+"You mentioned that you are currently unemployed.
+Your chart and current planetary periods also show delays and instability in career matters."
+
+User says:
+"I am single."
+
+Write:
+
+"You mentioned that you are currently single.
+The chart also indicates delays and caution in relationship matters."
+
+User says:
+"I have financial problems."
+
+Write:
+
+"You mentioned that finances are currently under pressure.
+The chart and current planetary periods also indicate fluctuations and delays in income."
+
+Do not assume the chart caused the problem.
+
+First acknowledge the user's situation.
+
+Then explain how the chart reflects or supports that situation.
+
+This acknowledgement should appear naturally at the beginning of Career, Finance, Relationship, Health or other relevant sections.
+
+If user has shared a main question, answer it clearly in the relevant section.
+
+If Report Style is consultation or full_plus_consultation, answer the main question in the personal consultation section.
+
+If Report Style is full, do not create a separate question-answer section.
+
+Do not ignore the user context.
+
+Do not overfit everything to the user context; combine it with chart, Mahadasha and transits.
 
 Report Instructions:
 {report_instruction}

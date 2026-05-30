@@ -33,20 +33,68 @@ app.add_middleware(
 )
 
 
+def get_report_display_names(report_style: str):
+    style = (report_style or "full").lower().strip()
+
+    if style == "consultation":
+        return {
+            "cover_title": "Personal Consultation Report",
+            "report_type_label": "Personal Consultation",
+            "price": 75,
+        }
+
+    if style == "full_plus_consultation":
+        return {
+            "cover_title": "Complete Astrology Report + Personal Consultation",
+            "report_type_label": "Complete + Consultation",
+            "price": 199,
+        }
+
+    return {
+        "cover_title": "Complete Astrology Report",
+        "report_type_label": "Complete Astrology",
+        "price": 125,
+    }
+
+
+def normalize_birth_date_for_chart(birth_date: str):
+    value = birth_date.strip()
+
+    try:
+        if "/" in value:
+            return datetime.strptime(value, "%d/%m/%Y").strftime("%Y-%m-%d")
+
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Birth date must be in DD/MM/YYYY format."
+        )
+
+
 class BirthData(BaseModel):
     name: str
     birth_date: str
     birth_time: str
     birth_place: str
     report_type: str = "free"
+    report_style: str = "full"
     language: str = "english"
     payment_token: str | None = None
+    current_concern: str | None = None
+    employment_status: str | None = None
+    relationship_status: str | None = None
+    main_question: str | None = None
 
 
 class PaymentVerification(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
+
+
+class PaymentOrderRequest(BaseModel):
+    report_style: str = "full"
 
 
 def verify_admin(x_admin_key: str | None):
@@ -92,8 +140,9 @@ def get_single_report(
 
 
 @app.post("/create-payment-order")
-def create_payment_order():
-    order = create_order(1)
+def create_payment_order(data: PaymentOrderRequest):
+    display = get_report_display_names(data.report_style)
+    order = create_order(display["price"])
 
     return {
         "order_id": order["id"],
@@ -131,17 +180,20 @@ def verify_payment(data: PaymentVerification):
 
 
 def build_chart_response(data: BirthData):
+    birth_date_for_chart = normalize_birth_date_for_chart(data.birth_date)
+
     print(
         "BIRTH INPUT USED:",
         {
             "birth_date": data.birth_date,
+            "birth_date_for_chart": birth_date_for_chart,
             "birth_time": data.birth_time,
             "birth_place": data.birth_place
         }
     )
 
     chart = generate_chart(
-        birth_date=data.birth_date,
+        birth_date=birth_date_for_chart,
         birth_time=data.birth_time,
         birth_place=data.birth_place
     )
@@ -174,6 +226,8 @@ def generate_chart_only(data: BirthData):
 @app.post("/generate-report")
 def generate_report(data: BirthData):
 
+    birth_date_for_chart = normalize_birth_date_for_chart(data.birth_date)
+
     if data.report_type.lower().strip() == "premium":
         if not data.payment_token or data.payment_token not in verified_payment_tokens:
             raise HTTPException(
@@ -184,15 +238,27 @@ def generate_report(data: BirthData):
         verified_payment_tokens.remove(data.payment_token)
 
     chart = generate_chart(
-        birth_date=data.birth_date,
+        birth_date=birth_date_for_chart,
         birth_time=data.birth_time,
         birth_place=data.birth_place
     )
 
+    question = data.main_question.strip() if data.main_question else None
+
+    if question and len(question) > 250:
+        question = question[:250]
+
     report = generate_full_prediction(
         chart_data=chart,
         report_type=data.report_type,
-        language=data.language
+        language=data.language,
+        report_style=data.report_style,
+        user_context={
+            "current_concern": data.current_concern,
+            "employment_status": data.employment_status,
+            "relationship_status": data.relationship_status,
+            "main_question": question
+        }
     )
 
     current_dasha = None
@@ -204,6 +270,7 @@ def generate_report(data: BirthData):
             break
 
     payment_status = "paid" if data.report_type.lower().strip() == "premium" else "free"
+    display = get_report_display_names(data.report_style)
 
     report_id = save_report(
         name=data.name,
@@ -222,6 +289,9 @@ def generate_report(data: BirthData):
             "report_id": report_id,
             "name": data.name,
             "report_type": data.report_type,
+            "report_style": data.report_style,
+            "cover_title": display["cover_title"],
+            "report_type_label": display["report_type_label"],
             "language": data.language,
             "input": {
                 "birth_date": data.birth_date,
@@ -240,6 +310,9 @@ def generate_report(data: BirthData):
             "report_id": report_id,
             "name": data.name,
             "report_type": data.report_type,
+            "report_style": data.report_style,
+            "cover_title": display["cover_title"],
+            "report_type_label": display["report_type_label"],
             "language": data.language,
             "input": {
                 "birth_date": data.birth_date,
