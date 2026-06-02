@@ -185,12 +185,28 @@ Do NOT repeat the full transit analysis already given in the Complete Astrology 
 
 Keep this section under 200 words.
 
-For every transit factor, start with:
+Use planet-specific headings instead of repeating "Main Effect".
 
-Main Effect:
-[one short practical line]
+For Current Transit Impact section:
 
-Then write a short explanation.
+Use ONLY English subheadings:
+
+### Saturn Impact
+### Jupiter Impact
+### Rahu Impact
+### Ketu Impact
+
+Do not repeat the same heading twice.
+Do not translate these headings into Hindi.
+Do not write "शनि प्रभाव", "गुरु प्रभाव", "राहु प्रभाव", or "केतु प्रभाव".
+Do not repeat planet impact headings.
+Do not translate the impact heading separately.
+After each heading, write one short paragraph only.
+For Hindi reports, keep the heading in English and write the paragraph in Hindi.
+
+Only include planets that are directly relevant to the question.
+
+Do not write "Main Effect" repeatedly in the Personal Consultation section.
 
 Do not include every transit if it is not relevant. But if a transit strongly affects the question, explain it clearly.
 
@@ -205,19 +221,22 @@ Direct Answer
 
 [Provide the answer]
 
-Probability Level
+Overall Assessment
 
 Choose one:
-- Strong Probability
-- Medium Probability
-- Low Probability
+- Strongly Favorable
+- Moderately Favorable
+- Mixed but Improving
+- Caution Needed
+
+Do not use "Probability Level".
 
 Do not skip the question.
 
 Always display both:
 - User Question
 - Direct Answer
-- Probability Level
+- Overall Assessment
 
 They must be in separate paragraphs.
 
@@ -233,9 +252,9 @@ Direct Answer
 
 [उत्तर]
 
-Probability Level
+Overall Assessment
 
-Strong Probability / Medium Probability / Low Probability
+Strongly Favorable / Moderately Favorable / Mixed but Improving / Caution Needed
 
 Headings must remain in English. Keep body text in Hindi.
 
@@ -247,7 +266,7 @@ Ignore the Hindi heading labels shown above.
 Use English headings only:
 Your Question
 Direct Answer
-Probability Level
+Overall Assessment
 
 Write the question and answer body in Hindi.
 
@@ -257,7 +276,7 @@ Ignore the Hindi heading labels shown above.
 Use English headings only:
 Your Question
 Direct Answer
-Probability Level
+Overall Assessment
 
 Write the question and answer body in Hindi.
 
@@ -272,7 +291,7 @@ Ignore the Hindi heading labels shown above.
 Use English headings only:
 Your Question
 Direct Answer
-Probability Level
+Overall Assessment
 
 Write the question and answer body in Hindi.
 
@@ -398,56 +417,56 @@ Required format:
 
 ### Saturn in 10th House
 Start with:
-Main Effect:
+Saturn Impact:
 [one short practical line]
 
 Explain result from Ascendant.
 
 ### Saturn in 12th House from Moon
 Start with:
-Main Effect:
+Saturn Impact:
 [one short practical line]
 
 Explain emotional/mental result from Moon.
 
 ### Jupiter in 1st House
 Start with:
-Main Effect:
+Jupiter Impact:
 [one short practical line]
 
 Explain result from Ascendant.
 
 ### Jupiter in 3rd House from Moon
 Start with:
-Main Effect:
+Jupiter Impact:
 [one short practical line]
 
 Explain emotional/mental result from Moon.
 
 ### Rahu in 9th House
 Start with:
-Main Effect:
+Rahu Impact:
 [one short practical line]
 
 Explain result from Ascendant.
 
 ### Rahu in 11th House from Moon
 Start with:
-Main Effect:
+Rahu Impact:
 [one short practical line]
 
 Explain emotional/mental result from Moon.
 
 ### Ketu in 3rd House
 Start with:
-Main Effect:
+Ketu Impact:
 [one short practical line]
 
 Explain result from Ascendant.
 
 ### Ketu in 5th House from Moon
 Start with:
-Main Effect:
+Ketu Impact:
 [one short practical line]
 
 Explain emotional/mental result from Moon.
@@ -477,6 +496,29 @@ Give realistic effects:
 - opportunities
 - caution
 - practical advice for next 6-12 months
+
+Current Transit Analysis Rules:
+
+For each planet transit, write:
+1. Planet and house from Ascendant
+2. Main practical effect
+3. From Ascendant explanation
+4. Planet and house from Moon
+5. Emotional / mental effect from Moon
+6. Practical advice
+
+Transit analysis is important. Do not make this section too short.
+
+For Jupiter, Rahu and Ketu also give detailed explanation equal to Saturn.
+
+Minimum length:
+- Saturn total: 180-220 words
+- Jupiter total: 180-220 words
+- Rahu total: 180-220 words
+- Ketu total: 160-200 words
+
+Do not write generic lines.
+Connect transit result to user's employment, relationship, money and current concern if provided.
 
 ## 8. Detailed Current Mahadasha Analysis
 IMPORTANT:
@@ -727,7 +769,7 @@ Ignore secondary questions.
 
 For Hindi reports in this Part 2 consultation:
 Keep all headings in English.
-Use "Your Question", "Direct Answer", "Probability Level", "Time Period", and "Practical Advice" as headings.
+Use "Your Question", "Direct Answer", "Overall Assessment", "Time Period", and "Practical Advice" as headings.
 Write only the paragraph body in Hindi.
 
 Use this format exactly:
@@ -761,12 +803,28 @@ Do NOT repeat the full transit analysis already given in the Complete Astrology 
 
 Keep this section under 200 words.
 
-For every transit factor, start with:
+Use planet-specific headings instead of repeating "Main Effect".
 
-Main Effect:
-[one short practical line]
+For Current Transit Impact section:
 
-Then write a short explanation.
+Use ONLY English subheadings:
+
+### Saturn Impact
+### Jupiter Impact
+### Rahu Impact
+### Ketu Impact
+
+Do not repeat the same heading twice.
+Do not translate these headings into Hindi.
+Do not write "शनि प्रभाव", "गुरु प्रभाव", "राहु प्रभाव", or "केतु प्रभाव".
+Do not repeat planet impact headings.
+Do not translate the impact heading separately.
+After each heading, write one short paragraph only.
+For Hindi reports, keep the heading in English and write the paragraph in Hindi.
+
+Only include planets that are directly relevant to the question.
+
+Do not write "Main Effect" repeatedly in the Personal Consultation section.
 
 ## Direct Answer
 Format exactly like this:
@@ -779,19 +837,22 @@ Direct Answer
 
 [Provide the answer]
 
-Probability Level
+Overall Assessment
 
 Choose one:
-- Strong Probability
-- Medium Probability
-- Low Probability
+- Strongly Favorable
+- Moderately Favorable
+- Mixed but Improving
+- Caution Needed
+
+Do not use "Probability Level".
 
 Do not skip the question.
 
 Always display both:
 - User Question
 - Direct Answer
-- Probability Level
+- Overall Assessment
 
 They must be in separate paragraphs.
 
@@ -820,7 +881,7 @@ Ignore the Hindi heading labels shown above.
 Use English headings only:
 Your Question
 Direct Answer
-Probability Level
+Overall Assessment
 
 Write the question and answer body in Hindi.
 

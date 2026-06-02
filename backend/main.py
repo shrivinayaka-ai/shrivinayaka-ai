@@ -39,21 +39,21 @@ def get_report_display_names(report_style: str):
     if style == "consultation":
         return {
             "cover_title": "Personal Consultation Report",
-            "report_type_label": "Personal Consultation",
-            "price": 75,
+            "report_type_label": "Personal Consultation Report",
+            "price": 49,
         }
 
     if style == "full_plus_consultation":
         return {
-            "cover_title": "Complete Astrology Report + Personal Consultation",
-            "report_type_label": "Complete + Consultation",
-            "price": 199,
+            "cover_title": "Complete Astrology + Consultation Report",
+            "report_type_label": "Complete Astrology + Consultation Report",
+            "price": 149,
         }
 
     return {
         "cover_title": "Complete Astrology Report",
-        "report_type_label": "Complete Astrology",
-        "price": 125,
+        "report_type_label": "Complete Astrology Report",
+        "price": 99,
     }
 
 
@@ -69,6 +69,60 @@ def normalize_birth_date_for_chart(birth_date: str):
         raise HTTPException(
             status_code=400,
             detail="Birth date must be in DD/MM/YYYY format."
+        )
+
+
+def validate_birth_data(data: "BirthData"):
+    if not data.name or not data.name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Name is required"
+        )
+
+    if not data.birth_date or not data.birth_date.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Date of Birth is required"
+        )
+
+    if not data.birth_time or not data.birth_time.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Time of Birth is required"
+        )
+
+    try:
+        datetime.strptime(data.birth_time.strip(), "%H:%M")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Time of Birth must be in HH:MM format"
+        )
+
+    if not data.birth_place or not data.birth_place.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Place of Birth is required"
+        )
+
+    if (
+        not data.employment_status
+        or data.employment_status.strip() == ""
+        or data.employment_status == "not_selected"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Employment Status is required"
+        )
+
+    if (
+        not data.relationship_status
+        or data.relationship_status.strip() == ""
+        or data.relationship_status == "not_selected"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Relationship Status is required"
         )
 
 
@@ -180,6 +234,7 @@ def verify_payment(data: PaymentVerification):
 
 
 def build_chart_response(data: BirthData):
+    validate_birth_data(data)
     birth_date_for_chart = normalize_birth_date_for_chart(data.birth_date)
 
     print(
@@ -226,6 +281,7 @@ def generate_chart_only(data: BirthData):
 @app.post("/generate-report")
 def generate_report(data: BirthData):
 
+    validate_birth_data(data)
     birth_date_for_chart = normalize_birth_date_for_chart(data.birth_date)
 
     if data.report_type.lower().strip() == "premium":
@@ -297,14 +353,20 @@ def generate_report(data: BirthData):
             "cover_title": display["cover_title"],
             "report_type_label": display["report_type_label"],
             "language": data.language,
+            "latitude": chart.get("latitude"),
+            "longitude": chart.get("longitude"),
             "input": {
                 "birth_date": data.birth_date,
                 "birth_time": data.birth_time,
-                "birth_place": data.birth_place
+                "birth_place": data.birth_place,
+                "employment_status": data.employment_status,
+                "relationship_status": data.relationship_status
             },
             "current_mahadasha": current_dasha,
             "calculation": chart["calculation"],
             "chart": chart["chart"],
+            "charts": chart.get("charts"),
+            "life_area_scores": chart.get("life_area_scores"),
             "transits": chart.get("transits"),
             "dasha_timeline": chart["dasha"]["timeline"],
             "report": report
@@ -320,12 +382,19 @@ def generate_report(data: BirthData):
             "cover_title": display["cover_title"],
             "report_type_label": display["report_type_label"],
             "language": data.language,
+            "latitude": chart.get("latitude"),
+            "longitude": chart.get("longitude"),
             "input": {
                 "birth_date": data.birth_date,
                 "birth_time": data.birth_time,
-                "birth_place": data.birth_place
+                "birth_place": data.birth_place,
+                "employment_status": data.employment_status,
+                "relationship_status": data.relationship_status
             },
             "current_mahadasha": current_dasha,
+            "chart": chart.get("chart"),
+            "charts": chart.get("charts"),
+            "life_area_scores": chart.get("life_area_scores"),
             "transits": chart.get("transits"),
             "report": report
         }

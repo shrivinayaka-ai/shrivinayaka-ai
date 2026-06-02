@@ -15,6 +15,21 @@ SIGNS = [
     "Sagittarius","Capricorn","Aquarius","Pisces"
 ]
 
+LIFE_AREAS = {
+    1: {"title": "Self & Body", "meaning": "personality, body, confidence"},
+    2: {"title": "Wealth & Speech", "meaning": "income, savings, speech"},
+    3: {"title": "Courage & Siblings", "meaning": "effort, communication, siblings"},
+    4: {"title": "Home & Happiness", "meaning": "home, mother, peace"},
+    5: {"title": "Intelligence & Children", "meaning": "education, creativity, children"},
+    6: {"title": "Health & Challenges", "meaning": "disease, debt, competition"},
+    7: {"title": "Marriage & Partnerships", "meaning": "marriage, spouse, partnerships"},
+    8: {"title": "Longevity & Hidden Matters", "meaning": "sudden events, secrets, transformation"},
+    9: {"title": "Fortune & Dharma", "meaning": "luck, father, higher wisdom"},
+    10: {"title": "Career & Fame", "meaning": "career, karma, public image"},
+    11: {"title": "Gains & Income", "meaning": "profits, network, desires"},
+    12: {"title": "Losses & Spirituality", "meaning": "expenses, sleep, foreign, moksha"},
+}
+
 NAKSHATRAS = [
     "Ashwini","Bharani","Krittika","Rohini","Mrigashira",
     "Ardra","Punarvasu","Pushya","Ashlesha",
@@ -29,6 +44,30 @@ NAKSHATRAS = [
 
 def degree_to_sign(deg):
     return SIGNS[int(deg / 30) % 12]
+
+
+def get_sign_index_from_name(sign_name):
+    return SIGNS.index(sign_name)
+
+
+def get_navamsa_sign_index(longitude):
+    sign_index = int(longitude / 30)
+    degree_in_sign = longitude % 30
+
+    # Each Navamsha is 3 degrees 20 minutes.
+    navamsa_part = int(degree_in_sign / (30 / 9))
+
+    movable = [0, 3, 6, 9]
+    fixed = [1, 4, 7, 10]
+
+    if sign_index in movable:
+        start = sign_index
+    elif sign_index in fixed:
+        start = (sign_index + 8) % 12
+    else:
+        start = (sign_index + 4) % 12
+
+    return (start + navamsa_part) % 12
 
 
 def degree_in_sign_dms(deg):
@@ -58,6 +97,76 @@ def get_nakshatra(deg):
     return {
         "nakshatra": NAKSHATRAS[index],
         "pada": pada
+    }
+
+
+def get_life_area_strengths(chart):
+    scores = {}
+
+    for house in range(1, 13):
+        scores[house] = 50
+
+    planet_effects = {
+        "Jupiter": 14,
+        "Venus": 12,
+        "Mercury": 8,
+        "Moon": 7,
+        "Sun": -4,
+        "Mars": -6,
+        "Saturn": -8,
+        "Rahu": -10,
+        "Ketu": -8,
+    }
+
+    for planet, data in chart.items():
+        if planet == "Ascendant":
+            continue
+
+        house = data.get("house")
+        if not house:
+            continue
+
+        scores[house] += planet_effects.get(planet, 0)
+
+    for planet, data in chart.items():
+        if data.get("house") == 10 and planet in ["Saturn", "Mars", "Sun"]:
+            scores[10] += 10
+
+    for planet, data in chart.items():
+        if data.get("house") == 6 and planet in ["Mars", "Saturn", "Rahu", "Ketu"]:
+            scores[6] += 8
+
+    for planet, data in chart.items():
+        if data.get("house") == 11 and planet in ["Rahu", "Saturn"]:
+            scores[11] += 8
+
+    final = []
+
+    for house in range(1, 13):
+        score = max(20, min(90, scores[house]))
+
+        if score >= 70:
+            level = "Strong"
+        elif score >= 50:
+            level = "Moderate"
+        else:
+            level = "Needs Attention"
+
+        final.append({
+            "house": house,
+            "title": LIFE_AREAS[house]["title"],
+            "meaning": LIFE_AREAS[house]["meaning"],
+            "score": score,
+            "level": level,
+        })
+
+    top_strong = sorted(final, key=lambda x: x["score"], reverse=True)[:3]
+    top_attention = sorted(final, key=lambda x: x["score"])[:3]
+
+    return {
+        "areas": final,
+        "top_strong": top_strong,
+        "top_attention": top_attention,
     }
 
 
@@ -194,6 +303,28 @@ def generate_chart(birth_date, birth_time, birth_place):
     dasha = generate_dasha(dasha_moon_raw, dt)
     transits = generate_transits(chart)
 
+    d1_chart = {}
+    d9_chart = {}
+    navamsa_asc_index = get_navamsa_sign_index(chart["Ascendant"]["raw_degree"])
+
+    for planet_name, planet_data in chart.items():
+        sign_index = get_sign_index_from_name(planet_data["sign"])
+        d1_chart[planet_name] = {
+            "sign": planet_data["sign"],
+            "sign_index": sign_index,
+            "house": planet_data["house"]
+        }
+
+        navamsa_sign_index = get_navamsa_sign_index(planet_data["raw_degree"])
+        navamsa_house = ((navamsa_sign_index - navamsa_asc_index) % 12) + 1
+        d9_chart[planet_name] = {
+            "sign": SIGNS[navamsa_sign_index],
+            "sign_index": navamsa_sign_index,
+            "house": navamsa_house
+        }
+
+    life_area_scores = get_life_area_strengths(chart)
+
     # ---------------- FINAL OUTPUT ----------------
     return {
         "birth_date": birth_date,
@@ -211,6 +342,11 @@ def generate_chart(birth_date, birth_time, birth_place):
             "ayanamsa_degree": ayanamsa_degree
         },
         "chart": chart,
+        "charts": {
+            "d1": d1_chart,
+            "d9": d9_chart
+        },
+        "life_area_scores": life_area_scores,
         "dasha": dasha,
         "transits": transits
     }
