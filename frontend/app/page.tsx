@@ -442,6 +442,19 @@ export default function Home() {
     };
   }, [report]);
 
+  useEffect(() => {
+    if (!report) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      document.getElementById("report-content")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 150);
+  }, [report]);
+
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {

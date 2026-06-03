@@ -106,8 +106,8 @@ function callbackPage(params: URLSearchParams) {
     <div class="box">
       <div class="loader"></div>
       <h1>Payment successful</h1>
-      <p id="status">Generating your personalized astrology report...</p>
-      <p>Please do not refresh this page.</p>
+      <p id="status">Charting your natal sky...</p>
+      <p>This can take 30-60 seconds. Please do not refresh this page.</p>
     </div>
 
     <script>
@@ -117,10 +117,30 @@ function callbackPage(params: URLSearchParams) {
         var ERROR_KEY = ${JSON.stringify(PAYMENT_ERROR_KEY)};
         var payment = ${JSON.stringify(payment)};
         var status = document.getElementById("status");
+        var messages = [
+          "Charting your natal sky...",
+          "Aligning Rasi (D1) and Navamsa (D9) charts...",
+          "Monitoring planetary positions...",
+          "Interpreting your Mahadasha cycle...",
+          "Reviewing the current Antardasha...",
+          "Mapping present planetary transits...",
+          "Generating your personalized report...",
+          "Your report is ready."
+        ];
+        var messageIndex = 0;
+        var messageInterval = window.setInterval(function () {
+          messageIndex = Math.min(messageIndex + 1, messages.length - 1);
+          status.textContent = messages[messageIndex];
+
+          if (messageIndex === messages.length - 1) {
+            window.clearInterval(messageInterval);
+          }
+        }, 11000);
 
         function fail(message) {
+          window.clearInterval(messageInterval);
           sessionStorage.setItem(ERROR_KEY, message);
-          window.location.replace("/?payment_error=1");
+          window.location.replace("/?payment_error=1#report-form");
         }
 
         try {
@@ -133,7 +153,6 @@ function callbackPage(params: URLSearchParams) {
             return;
           }
 
-          status.textContent = "Verifying payment and preparing your astrology report...";
           var reportResponse = await fetch(API_BASE_URL + "/complete-payment-order", {
             method: "POST",
             headers: {
@@ -163,8 +182,10 @@ function callbackPage(params: URLSearchParams) {
             return;
           }
 
+          window.clearInterval(messageInterval);
+          status.textContent = "Your report is ready.";
           sessionStorage.setItem(COMPLETED_KEY, JSON.stringify(reportData));
-          window.location.replace("/?report_ready=1");
+          window.location.replace("/?report_ready=1#report-content");
         } catch (error) {
           fail(
             "Payment successful, but report generation failed. Please contact support with payment ID: " +
