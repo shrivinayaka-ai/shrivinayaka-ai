@@ -755,28 +755,41 @@ export default function Home() {
         name: "Shrivinayaka AI Astrology",
         description: "Premium Astrology Report",
         order_id,
-        handler: async function (response: any) {
+        handler: function (response: any) {
           console.log("Payment success:", response);
           setPaymentId(response.razorpay_payment_id);
           setPaymentDone(true);
 
-          const verifyResponse = await axios.post(
-            `${API_BASE_URL}/verify-payment`,
-            {
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-            }
-          );
+          window.setTimeout(async () => {
+            try {
+              const verifyResponse = await axios.post(
+                `${API_BASE_URL}/verify-payment`,
+                {
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                }
+              );
 
-          if (verifyResponse.data.success) {
-            await generateReportAfterPayment(
-              verifyResponse.data.payment_token,
-              response.razorpay_payment_id
-            );
-          } else {
-            alert("Payment verification failed");
-          }
+              if (verifyResponse.data.success) {
+                await generateReportAfterPayment(
+                  verifyResponse.data.payment_token,
+                  response.razorpay_payment_id
+                );
+              } else {
+                alert("Payment verification failed");
+              }
+            } catch (error) {
+              console.error("Payment verification failed:", error);
+              setLoading(false);
+              setErrorMessage(
+                "Payment successful, but verification failed. Please contact support with your payment ID."
+              );
+              alert(
+                `Payment successful, but verification failed. Please contact support with payment ID: ${response.razorpay_payment_id}`
+              );
+            }
+          }, 300);
         },
         theme: {
           color: "#7c3aed",
