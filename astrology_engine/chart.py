@@ -186,7 +186,9 @@ def generate_chart(
     set_lahiri_mode()
 
     # ---------------- LOCATION ----------------
-    if use_manual_coordinates:
+    has_coordinates = latitude is not None and longitude is not None
+
+    if has_coordinates:
         if latitude is None or longitude is None:
             return {"error": "Latitude and longitude are required."}
 

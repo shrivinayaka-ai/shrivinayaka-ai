@@ -638,14 +638,21 @@ export default function Home() {
     reportType = formData.report_type,
     paymentToken: string | null = null,
     razorpayPaymentId: string | null = null
-  ) => ({
+  ) => {
+    const hasCoordinates =
+      formData.latitude.trim() !== "" && formData.longitude.trim() !== "";
+
+    return {
       ...formData,
       birth_date: formatDateForBackend(getBirthDateForBackend()),
       report_type: reportType,
       payment_token: paymentToken,
       payment_id: razorpayPaymentId,
-      use_manual_coordinates: useManualCoordinates,
-    });
+      latitude: hasCoordinates ? Number(formData.latitude) : null,
+      longitude: hasCoordinates ? Number(formData.longitude) : null,
+      use_manual_coordinates: useManualCoordinates || hasCoordinates,
+    };
+  };
 
   const sendReport = async (
     reportType = formData.report_type,
