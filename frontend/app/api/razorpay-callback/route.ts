@@ -4,7 +4,6 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   "https://shrivinayaka-backend.onrender.com";
 
-const PENDING_REPORT_PAYLOAD_KEY = "shrivinayaka_pending_report_payload";
 const COMPLETED_REPORT_KEY = "shrivinayaka_completed_report";
 const PAYMENT_ERROR_KEY = "shrivinayaka_payment_error";
 
@@ -114,7 +113,6 @@ function callbackPage(params: URLSearchParams) {
     <script>
       (async function () {
         var API_BASE_URL = ${JSON.stringify(API_BASE_URL)};
-        var PENDING_KEY = ${JSON.stringify(PENDING_REPORT_PAYLOAD_KEY)};
         var COMPLETED_KEY = ${JSON.stringify(COMPLETED_REPORT_KEY)};
         var ERROR_KEY = ${JSON.stringify(PAYMENT_ERROR_KEY)};
         var payment = ${JSON.stringify(payment)};
@@ -135,52 +133,13 @@ function callbackPage(params: URLSearchParams) {
             return;
           }
 
-          var pendingPayloadText = sessionStorage.getItem(PENDING_KEY);
-
-          if (!pendingPayloadText) {
-            fail(
-              "Payment successful, but report details were lost. Please contact support with payment ID: " +
-                payment.razorpay_payment_id
-            );
-            return;
-          }
-
-          var pendingPayload = JSON.parse(pendingPayloadText);
-
-          status.textContent = "Verifying your payment...";
-          var verifyResponse = await fetch(API_BASE_URL + "/verify-payment", {
+          status.textContent = "Verifying payment and preparing your astrology report...";
+          var reportResponse = await fetch(API_BASE_URL + "/complete-payment-order", {
             method: "POST",
             headers: {
               "Content-Type": "application/json"
             },
             body: JSON.stringify(payment)
-          });
-
-          var verifyData = await verifyResponse.json().catch(function () {
-            return {};
-          });
-
-          if (!verifyResponse.ok || !verifyData.success) {
-            fail(
-              "Payment successful, but verification failed. Please contact support with payment ID: " +
-                payment.razorpay_payment_id
-            );
-            return;
-          }
-
-          status.textContent = "Preparing your astrology report...";
-          var reportPayload = Object.assign({}, pendingPayload, {
-            report_type: "premium",
-            payment_token: verifyData.payment_token,
-            payment_id: payment.razorpay_payment_id
-          });
-
-          var reportResponse = await fetch(API_BASE_URL + "/generate-report", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(reportPayload)
           });
 
           var reportText = await reportResponse.text();
@@ -194,8 +153,17 @@ function callbackPage(params: URLSearchParams) {
           }
 
           var reportData = JSON.parse(reportText);
+
+          if (!reportData || !reportData.report) {
+            fail(
+              (reportData && reportData.error) ||
+                "Payment successful, but report generation returned incomplete data. Please contact support with payment ID: " +
+                  payment.razorpay_payment_id
+            );
+            return;
+          }
+
           sessionStorage.setItem(COMPLETED_KEY, JSON.stringify(reportData));
-          sessionStorage.removeItem(PENDING_KEY);
           window.location.replace("/?report_ready=1");
         } catch (error) {
           fail(

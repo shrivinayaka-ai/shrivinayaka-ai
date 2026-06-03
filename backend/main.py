@@ -21,6 +21,7 @@ app = FastAPI()
 init_db()
 
 verified_payment_tokens = set()
+pending_payment_orders = {}
 
 COMMON_INDIAN_PLACES = [
     {
@@ -565,6 +566,7 @@ class PaymentVerification(BaseModel):
 
 class PaymentOrderRequest(BaseModel):
     report_style: str = "full"
+    payload: dict | None = None
 
 
 def verify_admin(x_admin_key: str | None):
@@ -655,6 +657,7 @@ def get_single_report(
 def create_payment_order(data: PaymentOrderRequest):
     display = get_report_display_names(data.report_style)
     order = create_order(display["price"])
+    pending_payment_orders[order["id"]] = data.payload or {}
 
     return {
         "order_id": order["id"],
@@ -689,6 +692,44 @@ def verify_payment(data: PaymentVerification):
             status_code=400,
             detail="Payment verification failed"
         )
+
+
+@app.post("/complete-payment-order")
+def complete_payment_order(data: PaymentVerification):
+
+    try:
+        params_dict = {
+            "razorpay_order_id": data.razorpay_order_id,
+            "razorpay_payment_id": data.razorpay_payment_id,
+            "razorpay_signature": data.razorpay_signature
+        }
+
+        razorpay_client.utility.verify_payment_signature(params_dict)
+
+    except:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment verification failed"
+        )
+
+    payload = pending_payment_orders.pop(data.razorpay_order_id, None)
+
+    if not payload:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment details found, but report form data was not found."
+        )
+
+    token = str(uuid.uuid4())
+    verified_payment_tokens.add(token)
+
+    payload = dict(payload)
+    payload["report_type"] = "premium"
+    payload["payment_token"] = token
+
+    report_data = BirthData(**payload)
+
+    return generate_report(report_data)
 
 
 def build_chart_response(data: BirthData):

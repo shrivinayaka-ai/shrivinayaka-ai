@@ -731,7 +731,17 @@ export default function Home() {
 
       if (completedReport) {
         try {
-          setReport(JSON.parse(completedReport));
+          const parsedReport = JSON.parse(completedReport);
+
+          if (!parsedReport?.report) {
+            setErrorMessage(
+              parsedReport?.error ||
+                "Payment successful, but report generation returned incomplete data. Please contact support."
+            );
+          } else {
+            setReport(parsedReport);
+          }
+
           window.sessionStorage.removeItem(COMPLETED_REPORT_KEY);
           window.sessionStorage.removeItem(PENDING_REPORT_PAYLOAD_KEY);
         } catch (error) {
@@ -839,11 +849,13 @@ export default function Home() {
   const generatePremiumReport = async () => {
     try {
       setLoading(true);
+      const pendingPayload = buildReportPayload("premium");
 
       const orderResponse = await axios.post(
         `${API_BASE_URL}/create-payment-order`,
         {
           report_style: formData.report_style,
+          payload: pendingPayload,
         },
         {
           headers: {
@@ -853,7 +865,6 @@ export default function Home() {
       );
 
       const { order_id, amount, currency, key } = orderResponse.data;
-      const pendingPayload = buildReportPayload("premium");
 
       if (!(window as any).Razorpay) {
         alert("Razorpay script not loaded");
