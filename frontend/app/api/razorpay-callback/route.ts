@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-function buildRedirectUrl(req: NextRequest) {
-  return new URL("/", req.nextUrl.origin);
-}
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "https://shrivinayaka-backend.onrender.com";
+
+const PENDING_REPORT_PAYLOAD_KEY = "shrivinayaka_pending_report_payload";
+const COMPLETED_REPORT_KEY = "shrivinayaka_completed_report";
+const PAYMENT_ERROR_KEY = "shrivinayaka_payment_error";
 
 async function readCallbackParams(req: NextRequest) {
   const params = new URLSearchParams();
@@ -45,9 +49,12 @@ async function readCallbackParams(req: NextRequest) {
   }
 }
 
-function redirectBridge(redirectUrl: URL) {
-  const target = redirectUrl.toString();
-  const escapedTarget = JSON.stringify(target);
+function callbackPage(params: URLSearchParams) {
+  const payment = {
+    razorpay_order_id: params.get("razorpay_order_id") || "",
+    razorpay_payment_id: params.get("razorpay_payment_id") || "",
+    razorpay_signature: params.get("razorpay_signature") || "",
+  };
 
   return new NextResponse(
     `<!doctype html>
@@ -55,8 +62,7 @@ function redirectBridge(redirectUrl: URL) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="1;url=${target}" />
-    <title>Returning to Shrivinayaka Astrology</title>
+    <title>Generating Your Report</title>
     <style>
       body {
         margin: 0;
@@ -69,28 +75,133 @@ function redirectBridge(redirectUrl: URL) {
         text-align: center;
       }
       .box {
-        max-width: 420px;
-        padding: 28px;
+        max-width: 520px;
+        padding: 32px;
       }
-      a {
+      .loader {
+        width: 54px;
+        height: 54px;
+        margin: 0 auto 22px;
+        border: 6px solid #ead8b8;
+        border-top-color: #8b0000;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      h1 {
+        margin: 0 0 12px;
         color: #8b0000;
-        font-weight: 700;
+        font-size: 28px;
+      }
+      p {
+        margin: 8px 0;
+        line-height: 1.6;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
     </style>
   </head>
   <body>
     <div class="box">
-      <h1>Payment received</h1>
-      <p>Returning to your report page...</p>
-      <p><a href="${target}" target="_top">Continue to report</a></p>
+      <div class="loader"></div>
+      <h1>Payment successful</h1>
+      <p id="status">Generating your personalized astrology report...</p>
+      <p>Please do not refresh this page.</p>
     </div>
+
     <script>
-      (function () {
-        var target = ${escapedTarget};
+      (async function () {
+        var API_BASE_URL = ${JSON.stringify(API_BASE_URL)};
+        var PENDING_KEY = ${JSON.stringify(PENDING_REPORT_PAYLOAD_KEY)};
+        var COMPLETED_KEY = ${JSON.stringify(COMPLETED_REPORT_KEY)};
+        var ERROR_KEY = ${JSON.stringify(PAYMENT_ERROR_KEY)};
+        var payment = ${JSON.stringify(payment)};
+        var status = document.getElementById("status");
+
+        function fail(message) {
+          sessionStorage.setItem(ERROR_KEY, message);
+          window.location.replace("/?payment_error=1");
+        }
+
         try {
-          window.top.location.href = target;
+          if (
+            !payment.razorpay_order_id ||
+            !payment.razorpay_payment_id ||
+            !payment.razorpay_signature
+          ) {
+            fail("Payment successful, but payment details were not returned. Please contact support.");
+            return;
+          }
+
+          var pendingPayloadText = sessionStorage.getItem(PENDING_KEY);
+
+          if (!pendingPayloadText) {
+            fail(
+              "Payment successful, but report details were lost. Please contact support with payment ID: " +
+                payment.razorpay_payment_id
+            );
+            return;
+          }
+
+          var pendingPayload = JSON.parse(pendingPayloadText);
+
+          status.textContent = "Verifying your payment...";
+          var verifyResponse = await fetch(API_BASE_URL + "/verify-payment", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payment)
+          });
+
+          var verifyData = await verifyResponse.json().catch(function () {
+            return {};
+          });
+
+          if (!verifyResponse.ok || !verifyData.success) {
+            fail(
+              "Payment successful, but verification failed. Please contact support with payment ID: " +
+                payment.razorpay_payment_id
+            );
+            return;
+          }
+
+          status.textContent = "Preparing your astrology report...";
+          var reportPayload = Object.assign({}, pendingPayload, {
+            report_type: "premium",
+            payment_token: verifyData.payment_token,
+            payment_id: payment.razorpay_payment_id
+          });
+
+          var reportResponse = await fetch(API_BASE_URL + "/generate-report", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(reportPayload)
+          });
+
+          var reportText = await reportResponse.text();
+
+          if (!reportResponse.ok) {
+            fail(
+              "Payment successful, but report generation failed. Please contact support with payment ID: " +
+                payment.razorpay_payment_id
+            );
+            return;
+          }
+
+          var reportData = JSON.parse(reportText);
+          sessionStorage.setItem(COMPLETED_KEY, JSON.stringify(reportData));
+          sessionStorage.removeItem(PENDING_KEY);
+          window.location.replace("/?report_ready=1");
         } catch (error) {
-          window.location.href = target;
+          fail(
+            "Payment successful, but report generation failed. Please contact support with payment ID: " +
+              (payment.razorpay_payment_id || "not available")
+          );
         }
       })();
     </script>
@@ -106,42 +217,9 @@ function redirectBridge(redirectUrl: URL) {
 }
 
 export async function POST(req: NextRequest) {
-  const callbackParams = await readCallbackParams(req);
-  const redirectUrl = buildRedirectUrl(req);
-
-  redirectUrl.searchParams.set("payment_callback", "1");
-
-  for (const field of [
-    "razorpay_payment_id",
-    "razorpay_order_id",
-    "razorpay_signature",
-  ]) {
-    const value = callbackParams.get(field);
-
-    if (value) {
-      redirectUrl.searchParams.set(field, value);
-    }
-  }
-
-  return redirectBridge(redirectUrl);
+  return callbackPage(await readCallbackParams(req));
 }
 
 export async function GET(req: NextRequest) {
-  const redirectUrl = buildRedirectUrl(req);
-
-  redirectUrl.searchParams.set("payment_callback", "1");
-
-  for (const field of [
-    "razorpay_payment_id",
-    "razorpay_order_id",
-    "razorpay_signature",
-  ]) {
-    const value = req.nextUrl.searchParams.get(field);
-
-    if (value) {
-      redirectUrl.searchParams.set(field, value);
-    }
-  }
-
-  return redirectBridge(redirectUrl);
+  return callbackPage(req.nextUrl.searchParams);
 }

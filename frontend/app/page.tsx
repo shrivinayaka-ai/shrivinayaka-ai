@@ -8,6 +8,8 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
 const PENDING_REPORT_PAYLOAD_KEY = "shrivinayaka_pending_report_payload";
+const COMPLETED_REPORT_KEY = "shrivinayaka_completed_report";
+const PAYMENT_ERROR_KEY = "shrivinayaka_payment_error";
 
 const CURRENT_MAX_YEAR = 2026;
 
@@ -720,6 +722,43 @@ export default function Home() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
+    if (params.get("report_ready") === "1") {
+      const completedReport = window.sessionStorage.getItem(
+        COMPLETED_REPORT_KEY
+      );
+
+      window.history.replaceState(null, "", window.location.pathname);
+
+      if (completedReport) {
+        try {
+          setReport(JSON.parse(completedReport));
+          window.sessionStorage.removeItem(COMPLETED_REPORT_KEY);
+          window.sessionStorage.removeItem(PENDING_REPORT_PAYLOAD_KEY);
+        } catch (error) {
+          console.error("Unable to read completed report:", error);
+          setErrorMessage(
+            "Payment successful, but the report could not be opened. Please contact support."
+          );
+        }
+      }
+
+      setLoading(false);
+      return;
+    }
+
+    if (params.get("payment_error") === "1") {
+      const paymentError = window.sessionStorage.getItem(PAYMENT_ERROR_KEY);
+
+      window.history.replaceState(null, "", window.location.pathname);
+      setErrorMessage(
+        paymentError ||
+          "Payment successful, but report generation failed. Please contact support."
+      );
+      window.sessionStorage.removeItem(PAYMENT_ERROR_KEY);
+      setLoading(false);
+      return;
+    }
+
     if (params.get("payment_callback") !== "1") {
       return;
     }
@@ -826,6 +865,10 @@ export default function Home() {
         JSON.stringify(pendingPayload)
       );
 
+      const useCallbackRedirect =
+        window.location.hostname !== "localhost" &&
+        window.location.hostname !== "127.0.0.1";
+
       const options: Record<string, any> = {
         key,
         amount,
@@ -884,6 +927,11 @@ export default function Home() {
           color: "#7c3aed",
         },
       };
+
+      if (useCallbackRedirect) {
+        options.callback_url = `${window.location.origin}/api/razorpay-callback`;
+        options.redirect = true;
+      }
 
       const razorpay = new (window as any).Razorpay(options);
       razorpay.open();
