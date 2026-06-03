@@ -522,7 +522,7 @@ export default function Home() {
     }
 
     try {
-      const url = `${API_BASE_URL}/search-place?q=${encodeURIComponent(query.trim())}`;
+      const url = `/api/search-place?q=${encodeURIComponent(query.trim())}`;
       console.log("Searching place:", url);
 
       const response = await fetch(url);
