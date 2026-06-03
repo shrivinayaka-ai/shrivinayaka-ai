@@ -398,6 +398,8 @@ export default function Home() {
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [report, setReport] = useState<ReportData | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [paymentId, setPaymentId] = useState("");
+  const [paymentDone, setPaymentDone] = useState(false);
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<any[]>([]);
   const [useManualCoordinates, setUseManualCoordinates] = useState(false);
@@ -628,17 +630,24 @@ export default function Home() {
     return true;
   };
 
-  const sendReport = async (
+  const buildReportPayload = (
     reportType = formData.report_type,
-    paymentToken: string | null = null
-  ) => {
-    const payload = {
+    paymentToken: string | null = null,
+    razorpayPaymentId: string | null = null
+  ) => ({
       ...formData,
       birth_date: formatDateForBackend(getBirthDateForBackend()),
       report_type: reportType,
       payment_token: paymentToken,
+      payment_id: razorpayPaymentId,
       use_manual_coordinates: useManualCoordinates,
-    };
+    });
+
+  const sendReport = async (
+    reportType = formData.report_type,
+    paymentToken: string | null = null
+  ) => {
+    const payload = buildReportPayload(reportType, paymentToken);
 
     try {
       setLoading(true);
@@ -659,6 +668,43 @@ export default function Home() {
       setErrorMessage("Error generating report. Check backend and browser console.");
       alert("Error generating report. Check backend and console.");
       console.log("FULL ERROR:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateReportAfterPayment = async (
+    paymentToken: string,
+    razorpayPaymentId: string
+  ) => {
+    const payload = buildReportPayload(
+      "premium",
+      paymentToken,
+      razorpayPaymentId
+    );
+
+    try {
+      setLoading(true);
+      setErrorMessage("");
+      setReport(null);
+      console.log("REPORT AFTER PAYMENT PAYLOAD:", payload);
+
+      const response = await axios.post(
+        `${API_BASE_URL}/generate-report`,
+        payload,
+        { timeout: 180000 }
+      );
+
+      console.log("REPORT RESPONSE:", response.data);
+      setReport(response.data);
+    } catch (error) {
+      console.error("Report generation failed:", error);
+      setErrorMessage(
+        "Payment successful, but report generation failed. Please contact support with your payment ID."
+      );
+      alert(
+        `Payment successful, but report generation failed. Please contact support with payment ID: ${razorpayPaymentId}`
+      );
     } finally {
       setLoading(false);
     }
@@ -710,6 +756,9 @@ export default function Home() {
         description: "Premium Astrology Report",
         order_id,
         handler: async function (response: any) {
+          console.log("Payment success:", response);
+          setPaymentId(response.razorpay_payment_id);
+          setPaymentDone(true);
 
           const verifyResponse = await axios.post(
             `${API_BASE_URL}/verify-payment`,
@@ -721,7 +770,10 @@ export default function Home() {
           );
 
           if (verifyResponse.data.success) {
-            await sendReport("premium", verifyResponse.data.payment_token);
+            await generateReportAfterPayment(
+              verifyResponse.data.payment_token,
+              response.razorpay_payment_id
+            );
           } else {
             alert("Payment verification failed");
           }
