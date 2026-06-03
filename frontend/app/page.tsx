@@ -7,6 +7,8 @@ import ReactMarkdown from "react-markdown";
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
+const PENDING_REPORT_PAYLOAD_KEY = "shrivinayaka_pending_report_payload";
+
 const CURRENT_MAX_YEAR = 2026;
 
 const loadingMessages = [
@@ -675,13 +677,17 @@ export default function Home() {
 
   const generateReportAfterPayment = async (
     paymentToken: string,
-    razorpayPaymentId: string
+    razorpayPaymentId: string,
+    savedPayload?: Record<string, any>
   ) => {
-    const payload = buildReportPayload(
-      "premium",
-      paymentToken,
-      razorpayPaymentId
-    );
+    const payload = savedPayload
+      ? {
+          ...savedPayload,
+          report_type: "premium",
+          payment_token: paymentToken,
+          payment_id: razorpayPaymentId,
+        }
+      : buildReportPayload("premium", paymentToken, razorpayPaymentId);
 
     try {
       setLoading(true);
@@ -697,6 +703,7 @@ export default function Home() {
 
       console.log("REPORT RESPONSE:", response.data);
       setReport(response.data);
+      window.sessionStorage.removeItem(PENDING_REPORT_PAYLOAD_KEY);
     } catch (error) {
       console.error("Report generation failed:", error);
       setErrorMessage(
@@ -709,6 +716,71 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("payment_callback") !== "1") {
+      return;
+    }
+
+    const razorpayPaymentId = params.get("razorpay_payment_id");
+    const razorpayOrderId = params.get("razorpay_order_id");
+    const razorpaySignature = params.get("razorpay_signature");
+    const storedPayload = window.sessionStorage.getItem(
+      PENDING_REPORT_PAYLOAD_KEY
+    );
+
+    window.history.replaceState(null, "", window.location.pathname);
+
+    if (!razorpayPaymentId || !razorpayOrderId || !razorpaySignature) {
+      setErrorMessage(
+        "Payment was completed, but payment details were not returned. Please contact support."
+      );
+      return;
+    }
+
+    if (!storedPayload) {
+      setErrorMessage(
+        `Payment successful, but report details were lost. Please contact support with payment ID: ${razorpayPaymentId}`
+      );
+      return;
+    }
+
+    const completePayment = async () => {
+      try {
+        setLoading(true);
+        setPaymentId(razorpayPaymentId);
+        setPaymentDone(true);
+
+        const savedPayload = JSON.parse(storedPayload);
+        const verifyResponse = await axios.post(`${API_BASE_URL}/verify-payment`, {
+          razorpay_order_id: razorpayOrderId,
+          razorpay_payment_id: razorpayPaymentId,
+          razorpay_signature: razorpaySignature,
+        });
+
+        if (verifyResponse.data.success) {
+          await generateReportAfterPayment(
+            verifyResponse.data.payment_token,
+            razorpayPaymentId,
+            savedPayload
+          );
+        } else {
+          setErrorMessage("Payment verification failed. Please contact support.");
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Payment callback failed:", error);
+        setErrorMessage(
+          `Payment successful, but report generation failed. Please contact support with payment ID: ${razorpayPaymentId}`
+        );
+        setLoading(false);
+      }
+    };
+
+    completePayment();
+  }, []);
 
   const generateReport = async () => {
     console.log("Generate Report clicked", formData);
@@ -742,13 +814,21 @@ export default function Home() {
       );
 
       const { order_id, amount, currency, key } = orderResponse.data;
+      const pendingPayload = buildReportPayload("premium");
 
       if (!(window as any).Razorpay) {
         alert("Razorpay script not loaded");
         return;
       }
 
-      const options = {
+      window.sessionStorage.setItem(
+        PENDING_REPORT_PAYLOAD_KEY,
+        JSON.stringify(pendingPayload)
+      );
+
+      const useCallbackRedirect = window.location.protocol === "https:";
+
+      const options: Record<string, any> = {
         key,
         amount,
         currency,
@@ -791,10 +871,26 @@ export default function Home() {
             }
           }, 300);
         },
+        modal: {
+          escape: false,
+          backdropclose: false,
+          handleback: false,
+          ondismiss: function () {
+            setLoading(false);
+          },
+        },
+        retry: {
+          enabled: false,
+        },
         theme: {
           color: "#7c3aed",
         },
       };
+
+      if (useCallbackRedirect) {
+        options.callback_url = `${window.location.origin}/api/razorpay-callback`;
+        options.redirect = true;
+      }
 
       const razorpay = new (window as any).Razorpay(options);
       razorpay.open();
