@@ -102,6 +102,12 @@ def generate_full_prediction(
         "longitude": chart_data["longitude"],
         "calculation": chart_data["calculation"],
         "chart": chart_data["chart"],
+        "nakshatra": chart_data.get("nakshatra"),
+        "nakshatra_summary_card": chart_data.get("nakshatra_summary_card"),
+        "current_dasha": chart_data.get("current_dasha"),
+        "current_dasha_details": chart_data.get("current_dasha_details"),
+        "antardasha_timeline": chart_data.get("antardasha_timeline"),
+        "dashas": chart_data.get("dashas"),
         "transits": chart_data.get("transits"),
         "current_mahadasha_planet": current_dasha["planet"],
         "current_mahadasha_start": current_dasha["start"],
@@ -177,6 +183,23 @@ Explain how ONLY the current Mahadasha affects the user's question.
 Current Mahadasha:
 {current_dasha["planet"]} Mahadasha
 {current_dasha["start"]} to {current_dasha["end"]}
+
+Current Dasha and Antardasha Details:
+{chart_data.get("current_dasha")}
+
+Nakshatra Summary Card:
+{chart_data.get("nakshatra_summary_card")}
+
+Antardasha Timeline:
+{chart_data.get("antardasha_timeline")}
+
+If current Antardasha details are provided, explain how the Antardasha modifies the current Mahadasha for the user's question.
+If next_antardasha is provided, briefly preview how the next Antardasha may shift the situation.
+If the question is about timing, include a concise next 3 years roadmap.
+If Antardasha Timeline is provided, include a simple table:
+Period | Start Date | End Date
+Do not confuse Antardasha with Mahadasha.
+Do not name the Antardasha planet as the Mahadasha.
 
 ## Current Transit Impact
 Mention ONLY the 2-3 most relevant transit factors connected directly to the user's question.
@@ -330,7 +353,48 @@ Explain:
 
 Write 3-5 detailed paragraphs.
 
-## 2. Core Karmic Challenges
+## 2. Moon Sign, Nakshatra and Pada Analysis
+Use the provided Moon Nakshatra Details.
+
+Mandatory:
+Start this section with a clear summary card:
+
+Moon Sign:
+Nakshatra:
+Pada:
+Nakshatra Lord:
+
+Explain:
+- Moon sign emotional base
+- Nakshatra nature
+- Pada meaning
+- Nakshatra lord influence
+- how this affects personality, choices and emotional reactions
+
+Write in simple practical language.
+
+## 3. Deep Personality Breakdown from Nakshatra
+Explain the psychological pattern shown by the Nakshatra and Pada.
+
+Discuss:
+- instinctive behavior
+- emotional needs
+- hidden fears
+- desire pattern
+- relationship with comfort, success and pressure
+- shadow side of the Nakshatra
+
+This section should feel personal, not textbook-like.
+
+## 4. Emotional Nature and Mental Pattern
+Explain:
+- emotional rhythm
+- thinking style
+- stress response
+- mood patterns
+- how the native handles disappointment, delay and uncertainty
+
+## 5. Core Karmic Challenges
 Explain:
 - repeating life struggles
 - emotional patterns
@@ -345,7 +409,7 @@ Explain:
 
 This section should feel deeply personal and emotionally accurate.
 
-## 3. Career, Work & Success Path
+## 6. Career, Work & Success Path
 Analyze:
 - suitable career direction
 - business vs job tendency
@@ -360,7 +424,7 @@ Mention likely growth periods during current Mahadasha.
 
 Write in detailed practical style.
 
-## 4. Money & Financial Stability
+## 7. Money & Financial Stability
 Analyze:
 - earning pattern
 - spending habits
@@ -372,7 +436,7 @@ Analyze:
 
 Give practical financial guidance.
 
-## 5. Relationship, Marriage & Emotional Compatibility
+## 8. Relationship, Marriage & Emotional Compatibility
 Analyze:
 - emotional expectations
 - attachment style
@@ -385,7 +449,7 @@ Analyze:
 
 If chart shows delay or intensity, explain gently without fear.
 
-## 6. Health & Mental Wellbeing
+## 9. Health & Mental Wellbeing
 Do NOT diagnose disease.
 
 Discuss:
@@ -398,7 +462,7 @@ Discuss:
 
 Give gentle wellness advice.
 
-## 7. Current Transit Analysis
+## 10. Current Transit Analysis
 Analyze current Saturn, Jupiter, Rahu and Ketu transits.
 
 VERY IMPORTANT:
@@ -416,64 +480,71 @@ Do this for all four planets:
 Required format:
 
 ### Saturn in 10th House
-Start with:
-Saturn Impact:
+#### Saturn Impact
 [one short practical line]
 
+#### Impact from Ascendant
 Explain result from Ascendant.
 
-### Saturn in 12th House from Moon
-Start with:
-Saturn Impact:
-[one short practical line]
+#### Saturn in 12th House from Moon
 
+#### Impact from Moon
 Explain emotional/mental result from Moon.
+
+#### Practical Advice
+Give practical advice for the next 6-12 months.
 
 ### Jupiter in 1st House
-Start with:
-Jupiter Impact:
+#### Jupiter Impact
 [one short practical line]
 
+#### Impact from Ascendant
 Explain result from Ascendant.
 
-### Jupiter in 3rd House from Moon
-Start with:
-Jupiter Impact:
-[one short practical line]
+#### Jupiter in 3rd House from Moon
 
+#### Impact from Moon
 Explain emotional/mental result from Moon.
+
+#### Practical Advice
+Give practical advice for the next 6-12 months.
 
 ### Rahu in 9th House
-Start with:
-Rahu Impact:
+#### Rahu Impact
 [one short practical line]
 
+#### Impact from Ascendant
 Explain result from Ascendant.
 
-### Rahu in 11th House from Moon
-Start with:
-Rahu Impact:
-[one short practical line]
+#### Rahu in 11th House from Moon
 
+#### Impact from Moon
 Explain emotional/mental result from Moon.
+
+#### Practical Advice
+Give practical advice for the next 6-12 months.
 
 ### Ketu in 3rd House
-Start with:
-Ketu Impact:
+#### Ketu Impact
 [one short practical line]
 
+#### Impact from Ascendant
 Explain result from Ascendant.
 
-### Ketu in 5th House from Moon
-Start with:
-Ketu Impact:
-[one short practical line]
+#### Ketu in 5th House from Moon
 
+#### Impact from Moon
 Explain emotional/mental result from Moon.
+
+#### Practical Advice
+Give practical advice for the next 6-12 months.
 
 Do not skip Moon-based placement for any planet.
 Do not skip Ascendant-based placement for any planet.
 Do not combine both meanings into one paragraph.
+Do not use "Main Effect" in this section.
+Do not write transit results as plain loose paragraphs.
+Use the h3 and h4 heading structure above so each planet can be shown in a bordered box in the PDF.
 
 Do not write:
 "From Moon's view..."
@@ -520,7 +591,7 @@ Minimum length:
 Do not write generic lines.
 Connect transit result to user's employment, relationship, money and current concern if provided.
 
-## 8. Detailed Current Mahadasha Analysis
+## 11. Detailed Current Mahadasha Analysis
 IMPORTANT:
 Analyze ONLY:
 {current_dasha["planet"]} Mahadasha
@@ -544,7 +615,98 @@ Give timing tendencies like:
 
 without making deterministic claims.
 
-## 9. Practical Remedies & Alignment Advice
+## 12. Current Antardasha Meaning
+Analyze the current Antardasha using ONLY the provided Current Dasha and Antardasha Details.
+
+Mandatory:
+Show the current period exactly:
+
+Current Antardasha:
+Start Date:
+End Date:
+
+Explain:
+- how the Antardasha modifies the current Mahadasha
+- emotional and practical themes
+- career/money/relationship impact where relevant
+- likely focus for the next 12-24 months
+- cautions and practical advice
+
+Do not call the Antardasha planet the Mahadasha planet.
+Do not change the given current Mahadasha.
+
+## 13. Next Antardasha Preview
+Use the provided next_antardasha inside Current Dasha and Antardasha Details.
+
+Mandatory:
+Show the next period exactly:
+
+Next Antardasha:
+Start Date:
+End Date:
+
+Explain:
+- which Antardasha comes next
+- likely shift in focus
+- what may improve
+- what may become more demanding
+- how to prepare before it starts
+
+Do not make fixed guarantees.
+
+## 14. Antardasha Timeline
+Use the provided Antardasha Timeline.
+
+Add a table exactly like:
+
+Period | Start Date | End Date
+
+Then explain the timing pattern in simple practical language.
+
+## 15. Next 3 Years Roadmap
+Create a practical timeline for the next 3 years.
+
+Use this format:
+
+### Year 1:
+Period:
+[Clear timing window]
+Prediction:
+[Opportunities, pressure points and likely developments]
+Advice:
+[Practical advice]
+
+### Year 2:
+Period:
+[Clear timing window]
+Prediction:
+[Opportunities, pressure points and likely developments]
+Advice:
+[Practical advice]
+
+### Year 3:
+Period:
+[Clear timing window]
+Prediction:
+[Opportunities, pressure points and likely developments]
+Advice:
+[Practical advice]
+
+Connect this roadmap with:
+- current Mahadasha
+- current Antardasha
+- next Antardasha
+- current transits
+
+Keep it realistic and practical.
+Do not use the word "Theme" or "Themes" in this roadmap.
+Keep Year 1, Year 2 and Year 3 close together with concise paragraphs and minimal gap.
+Use only these labels under each year:
+Period:
+Prediction:
+Advice:
+
+## 16. Practical Remedies & Alignment Advice
 Give safe and practical remedies:
 - discipline habits
 - meditation/mantra
@@ -555,14 +717,16 @@ Give safe and practical remedies:
 
 Avoid superstition and fear-based remedies.
 
-## 10. Final Guidance
+## 17. Final Guidance
 End with:
 - hopeful practical advice
 - emotional encouragement
 - balanced guidance
 - empowerment mindset
 
-## 11. Direct Answer Section
+At the end, always write "Final Observation" as a main heading, not plain text.
+
+## 18. Direct Answer Section
 If the user has asked a specific question, create the section title based on Report Language:
 
 English:
@@ -1218,8 +1382,69 @@ The current Mahadasha is exactly:
 Current Mahadasha period:
 {current_dasha["start"]} to {current_dasha["end"]}
 
+Moon Nakshatra Details:
+{clean_chart.get("nakshatra")}
+
+Nakshatra Summary Card:
+{clean_chart.get("nakshatra_summary_card")}
+
+Current Dasha and Antardasha Details:
+{clean_chart.get("current_dasha_details")}
+
+Antardasha Timeline:
+{clean_chart.get("antardasha_timeline")}
+
+Full Dasha Timeline:
+{clean_chart.get("dashas")}
+
 Do not infer, recalculate, or choose Mahadasha from any other chart factor.
 Do not mention any other planet as Mahadasha.
+If Antardasha details are provided, explain the Antardasha separately from Mahadasha.
+Do not call Antardasha the Mahadasha.
+
+Use Moon Nakshatra, Pada and Nakshatra Lord for personality, emotional nature and life pattern interpretation.
+
+Mandatory formatting rules:
+
+1. Under "Moon Sign, Nakshatra and Pada Analysis", start with:
+Moon Sign:
+Nakshatra:
+Pada:
+Nakshatra Lord:
+
+2. Under "Current Antardasha Meaning", show:
+Current Antardasha:
+Start Date:
+End Date:
+
+3. Under "Next Antardasha Preview", show:
+Next Antardasha:
+Start Date:
+End Date:
+
+4. Add an "Antardasha Timeline" table:
+Period | Start Date | End Date
+
+5. Next 3 Years Roadmap should be:
+Year 1:
+Period:
+Prediction:
+Advice:
+Year 2:
+Period:
+Prediction:
+Advice:
+Year 3:
+Period:
+Prediction:
+Advice:
+
+Do not use the word "Theme" or "Themes" in the Next 3 Years Roadmap.
+Keep Year 1, Year 2 and Year 3 close together with concise paragraphs and minimal gap.
+Use compact spacing between Period, Prediction and Advice.
+
+Final Observation must appear as a heading exactly:
+## Final Observation
 
 Report Type:
 {report_type}

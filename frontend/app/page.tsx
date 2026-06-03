@@ -7,14 +7,17 @@ import ReactMarkdown from "react-markdown";
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
 
+const CURRENT_MAX_YEAR = 2026;
+
 const loadingMessages = [
-  "Mapping your sky...",
-  "Checking Birth Details...",
-  "Harmonizing D1 & D9 charts...",
-  "Tracking the planets...",
-  "Decoding your Mahadasha...",
-  "Syncing current transits...",
-  "Your destiny is ready...",
+  "Charting your natal sky...",
+  "Aligning Rasi (D1) and Navamsa (D9) charts...",
+  "Monitoring planetary positions...",
+  "Interpreting your Mahadasha cycle...",
+  "Reviewing the current Antardasha...",
+  "Mapping present planetary transits...",
+  "Generating your personalized report...",
+  "Your report is ready.",
 ];
 
 const sampleReports = [
@@ -84,6 +87,26 @@ type ReportData = {
     end: string;
     years: number;
   };
+  current_dasha_details?: {
+    current_mahadasha?: string;
+    mahadasha_start?: string;
+    mahadasha_end?: string;
+    current_antardasha?: {
+      antardasha: string;
+      start: string;
+      end: string;
+    };
+    next_antardasha?: {
+      antardasha: string;
+      start: string;
+      end: string;
+    } | null;
+  };
+  antardasha_timeline?: Array<{
+    period: string;
+    start: string;
+    end: string;
+  }>;
   chart?: Record<string, any>;
   charts?: ReportCharts;
   life_area_scores?: LifeAreaScores;
@@ -132,6 +155,12 @@ const ordinal = (n: number) => {
 const ordinalFromValue = (value: unknown) => {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? ordinal(numberValue) : "-";
+};
+
+const formatDateForBackend = (date: string) => {
+  if (!date) return "";
+
+  return date;
 };
 
 const SIGNS = [
@@ -347,10 +376,16 @@ export default function Home() {
   const [formData, setFormData] = useState({
     name: "",
     birth_date: "",
+    birth_day: "",
+    birth_month: "",
+    birth_year: "",
     birth_time: "",
     birth_place: "",
+    latitude: "",
+    longitude: "",
+    use_manual_coordinates: false,
     report_type: "premium",
-    report_style: "full",
+    report_style: "full_plus_consultation",
     language: "english",
     current_concern: "general",
     employment_status: "not_selected",
@@ -363,6 +398,9 @@ export default function Home() {
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [report, setReport] = useState<ReportData | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeResults, setPlaceResults] = useState<any[]>([]);
+  const [useManualCoordinates, setUseManualCoordinates] = useState(false);
 
   useEffect(() => {
     if (!loading) {
@@ -374,7 +412,7 @@ export default function Home() {
       setLoadingMessageIndex((prev) =>
         prev < loadingMessages.length - 1 ? prev + 1 : prev
       );
-    }, 8000);
+    }, 12000);
 
     return () => window.clearInterval(interval);
   }, [loading]);
@@ -401,34 +439,121 @@ export default function Home() {
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
-    setFormData({
-      ...formData,
+    setFormData((prev) => ({
+      ...prev,
       [e.target.name]: e.target.value,
-    });
+    }));
   };
 
-  const handleBirthDateChange = (
-    e: React.ChangeEvent<HTMLInputElement>
+  const cleanNumber = (value: string) => value.replace(/\D/g, "");
+
+  const updateBirthDatePart = (
+    field: "birth_day" | "birth_month" | "birth_year",
+    value: string
   ) => {
-    let value = e.target.value.replace(/\D/g, "");
+    let cleaned = cleanNumber(value);
 
-    if (value.length > 2) {
-      value = value.slice(0, 2) + "/" + value.slice(2);
+    if (field === "birth_day") {
+      cleaned = cleaned.slice(0, 2);
+
+      if (Number(cleaned) > 31) cleaned = "31";
     }
 
-    if (value.length > 5) {
-      value = value.slice(0, 5) + "/" + value.slice(5);
+    if (field === "birth_month") {
+      cleaned = cleaned.slice(0, 2);
+
+      if (Number(cleaned) > 12) cleaned = "12";
     }
 
-    setFormData({
-      ...formData,
-      birth_date: value,
-    });
+    if (field === "birth_year") {
+      cleaned = cleaned.slice(0, 4);
+
+      if (cleaned.length === 4 && Number(cleaned) > CURRENT_MAX_YEAR) {
+        cleaned = String(CURRENT_MAX_YEAR);
+      }
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      [field]: cleaned,
+    }));
+  };
+
+  const getBirthDateForBackend = () =>
+    `${formData.birth_day}/${formData.birth_month}/${formData.birth_year}`;
+
+  const isValidBirthDate = () => {
+    const d = Number(formData.birth_day);
+    const m = Number(formData.birth_month);
+    const y = Number(formData.birth_year);
+
+    if (!d || !m || !y) return false;
+    if (formData.birth_year.length !== 4) return false;
+
+    const date = new Date(y, m - 1, d);
+    const today = new Date();
+
+    today.setHours(0, 0, 0, 0);
+    date.setHours(0, 0, 0, 0);
+
+    return (
+      y >= 1900 &&
+      y <= CURRENT_MAX_YEAR &&
+      date <= today &&
+      date.getDate() === d &&
+      date.getMonth() === m - 1 &&
+      date.getFullYear() === y
+    );
+  };
+
+  const searchPlaces = async (query: string) => {
+    setPlaceQuery(query);
+    setFormData((prev) => ({
+      ...prev,
+      birth_place: query,
+      latitude: "",
+      longitude: "",
+      use_manual_coordinates: false,
+    }));
+
+    if (!query || query.trim().length < 2) {
+      setPlaceResults([]);
+      return;
+    }
+
+    try {
+      const url = `${API_BASE_URL}/search-place?q=${encodeURIComponent(query.trim())}`;
+      console.log("Searching place:", url);
+
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("Place result:", data);
+
+      setPlaceResults(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.warn("Place search failed:", error);
+      setPlaceResults([]);
+    }
+  };
+
+  const setManualCoordinatesMode = (enabled: boolean) => {
+    setUseManualCoordinates(enabled);
+    setPlaceResults([]);
+
+    setFormData((prev) => ({
+      ...prev,
+      use_manual_coordinates: enabled,
+      latitude: enabled ? prev.latitude : "",
+      longitude: enabled ? prev.longitude : "",
+    }));
   };
 
   const validateRequiredFields = () => {
-    const dateRegex =
-      /^(0[1-9]|[12][0-9]|3[01])\/(0[1-9]|1[0-2])\/(19|20)\d\d$/;
     const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
 
     if (!formData.name.trim()) {
@@ -436,13 +561,17 @@ export default function Home() {
       return false;
     }
 
-    if (!formData.birth_date.trim()) {
+    if (
+      !formData.birth_day.trim() ||
+      !formData.birth_month.trim() ||
+      !formData.birth_year.trim()
+    ) {
       alert("Please enter Date of Birth");
       return false;
     }
 
-    if (!dateRegex.test(formData.birth_date)) {
-      alert("Please enter Date of Birth as DD/MM/YYYY");
+    if (!isValidBirthDate()) {
+      alert("Please enter a valid Date of Birth.");
       return false;
     }
 
@@ -457,8 +586,23 @@ export default function Home() {
     }
 
     if (!formData.birth_place.trim()) {
-      alert("Please enter Place of Birth");
+      alert("Please select or enter Birth Place.");
       return false;
+    }
+
+    if (useManualCoordinates) {
+      const lat = Number(formData.latitude);
+      const lon = Number(formData.longitude);
+
+      if (Number.isNaN(lat) || lat < -90 || lat > 90) {
+        alert("Please enter a valid latitude between -90 and 90.");
+        return false;
+      }
+
+      if (Number.isNaN(lon) || lon < -180 || lon > 180) {
+        alert("Please enter a valid longitude between -180 and 180.");
+        return false;
+      }
     }
 
     if (!formData.employment_status || formData.employment_status === "not_selected") {
@@ -490,8 +634,10 @@ export default function Home() {
   ) => {
     const payload = {
       ...formData,
+      birth_date: formatDateForBackend(getBirthDateForBackend()),
       report_type: reportType,
       payment_token: paymentToken,
+      use_manual_coordinates: useManualCoordinates,
     };
 
     try {
@@ -606,6 +752,41 @@ export default function Home() {
         }
 
         if (
+          /^#{0,4}\s*(17\.\s*)?final guidance:?$/i.test(trimmed)
+        ) {
+          return "## Guidance from Shrivinayaka Astrology";
+        }
+
+        if (
+          /^(final observation|final observation:|final guidance|final guidance:)$/i.test(
+            trimmed
+          )
+        ) {
+          return "## Final Observation";
+        }
+
+        if (
+          /^(Saturn|Jupiter|Rahu|Ketu)\s+in\s+\d+(st|nd|rd|th)\s+House(\s+from\s+Moon)?$/i.test(
+            trimmed
+          )
+        ) {
+          return `### ${trimmed}`;
+        }
+
+        if (
+          /^(Saturn|Jupiter|Rahu|Ketu) Impact:?$/i.test(trimmed) ||
+          /^(Impact from Ascendant|Impact from Ascendent|Impact from Moon|Practical Advice):?$/i.test(
+            trimmed
+          )
+        ) {
+          return `#### ${trimmed.replace(/:$/, "")}`;
+        }
+
+        if (/^(Period|Prediction|Advice):$/i.test(trimmed)) {
+          return `#### ${trimmed.replace(/:$/, "")}`;
+        }
+
+        if (
           trimmed.startsWith("#") ||
           trimmed.startsWith("- ") ||
           trimmed.startsWith("• ") ||
@@ -634,9 +815,28 @@ export default function Home() {
     setPdfLoading(true);
 
     const hasDevanagari = /[\u0900-\u097F]/.test(report.report);
+    const useHtmlPdfRenderer = true;
+    const cleanFileName = (value: string) =>
+      value
+        .trim()
+        .replace(/[^a-zA-Z0-9\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .trim();
+    const firstName =
+      cleanFileName(report.name || formData.name || "User")
+        .split("-")[0] || "User";
+    const reportTypeName = cleanFileName(
+      report.report_type_label ||
+        getReportStyleLabel(report.report_style || "full")
+    );
+    const pdfFileName = `${firstName}-Shrivinayaka-Astrology-${reportTypeName}.pdf`;
 
     try {
-      if (report.language?.toLowerCase() === "hindi" || hasDevanagari) {
+      if (
+        useHtmlPdfRenderer ||
+        report.language?.toLowerCase() === "hindi" ||
+        hasDevanagari
+      ) {
       const escapeHtml = (value: string) =>
         value
           .replace(/&/g, "&amp;")
@@ -661,44 +861,297 @@ export default function Home() {
         return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
       };
 
-      const markdownToHtml = (markdown: string) =>
-        markdown
-          .split("\n")
+      const keepOnlyLastFinalObservation = (markdown: string) => {
+        const lines = markdown.split("\n");
+        const finalHeadingIndexes = lines
+          .map((line, index) =>
+            /^#{1,4}\s*(final observation|final observation:|final guidance|final guidance:)$/i.test(
+              line.trim()
+            )
+              ? index
+              : -1
+          )
+          .filter((index) => index >= 0);
+
+        if (finalHeadingIndexes.length <= 1) {
+          return markdown;
+        }
+
+        const keepIndex = finalHeadingIndexes[finalHeadingIndexes.length - 1];
+        const removeIndexes = new Set(finalHeadingIndexes.slice(0, -1));
+        const filtered: string[] = [];
+        let skipping = false;
+
+        lines.forEach((line, index) => {
+          const trimmed = line.trim();
+          const isHeading = /^#{1,4}\s+/.test(trimmed);
+
+          if (removeIndexes.has(index)) {
+            skipping = true;
+            return;
+          }
+
+          if (index === keepIndex || (skipping && isHeading)) {
+            skipping = false;
+          }
+
+          if (!skipping) {
+            filtered.push(line);
+          }
+        });
+
+        return filtered.join("\n");
+      };
+
+      const buildAntardashaTableHtml = () =>
+        report.antardasha_timeline?.length
+          ? `
+            <table class="dasha-table">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Start Date</th>
+                  <th>End Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${report.antardasha_timeline
+                  .map(
+                    (item) => `
+                      <tr>
+                        <td><strong>${escapeHtml(item.period)}</strong></td>
+                        <td><strong>${escapeHtml(item.start)}</strong></td>
+                        <td><strong>${escapeHtml(item.end)}</strong></td>
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          `
+          : "";
+
+      const markdownToHtml = (markdown: string) => {
+        let inTransitSection = false;
+        let transitAnalysisSectionOpen = false;
+        let transitBoxOpen = false;
+        let transitSubBoxOpen = false;
+        let inRoadmapSection = false;
+        let roadmapYearOpen = false;
+        let finalObservationOpen = false;
+        let dashaEmphasisBoxOpen = false;
+        let skipAiAntardashaTimeline = false;
+
+        const closeTransitSubBox = () => {
+          if (!transitSubBoxOpen) {
+            return "";
+          }
+
+          transitSubBoxOpen = false;
+          return "</div>";
+        };
+
+        const closeTransitBox = () => {
+          if (!transitBoxOpen) {
+            return "";
+          }
+
+          const closing = `${closeTransitSubBox()}</div>`;
+          transitBoxOpen = false;
+          return closing;
+        };
+
+        const closeRoadmapYear = () => {
+          if (!roadmapYearOpen) {
+            return "";
+          }
+
+          roadmapYearOpen = false;
+          return "</div>";
+        };
+
+        const closeTransitAnalysisSection = () => {
+          const closing = closeTransitBox();
+
+          if (!transitAnalysisSectionOpen) {
+            return closing;
+          }
+
+          transitAnalysisSectionOpen = false;
+          inTransitSection = false;
+          return `${closing}</section>`;
+        };
+
+        const closeFinalObservation = () => {
+          if (!finalObservationOpen) {
+            return "";
+          }
+
+          finalObservationOpen = false;
+          return "</section>";
+        };
+
+        const closeDashaEmphasisBox = () => {
+          if (!dashaEmphasisBoxOpen) {
+            return "";
+          }
+
+          dashaEmphasisBoxOpen = false;
+          return "</div>";
+        };
+
+        const closeSpecialBlocks = () =>
+          `${closeDashaEmphasisBox()}${closeTransitAnalysisSection()}${closeRoadmapYear()}${closeFinalObservation()}`;
+
+        const isTransitPlanetHeading = (heading: string) =>
+          /^(Saturn|Jupiter|Rahu|Ketu)\b/i.test(heading);
+
+        const isFinalObservationHeading = (heading: string) =>
+          /^(final observation|final observation:|final guidance|final guidance:)$/i.test(
+            heading
+          ) ||
+          heading === "अंतिम निष्कर्ष" ||
+          heading === "अंतिम निष्कर्ष:";
+
+        const isRoadmapHeading = (heading: string) =>
+          /next\s+3\s+years\s+roadmap/i.test(heading);
+
+        const isRoadmapYearHeading = (heading: string) =>
+          /^Year\s+[123]:?$/i.test(heading);
+
+        const isAntardashaTimelineHeading = (heading: string) =>
+          /antardasha\s+timeline/i.test(heading);
+
+        const isDashaEmphasisLine = (value: string) =>
+          /^(Current Mahadasha|Current Antardasha|Next Antardasha|Start Date|End Date):/i.test(
+            value
+          ) || /\b(Mahadasha|Antardasha)\s*\(.+\)/i.test(value);
+
+        const lines = markdown.split("\n");
+        const html = lines
           .map((line) => {
             const trimmed = line.trim();
 
             if (!trimmed) {
-              return "<div class=\"gap\"></div>";
+              return `${closeDashaEmphasisBox()}<div class="gap"></div>`;
             }
 
             if (trimmed.startsWith("# ")) {
-              return `<h1>${escapeHtml(trimmed.replace(/^#\s+/, ""))}</h1>`;
+              inTransitSection = false;
+              skipAiAntardashaTimeline = false;
+              inRoadmapSection = false;
+              return `${closeSpecialBlocks()}<h1>${escapeHtml(
+                trimmed.replace(/^#\s+/, "")
+              )}</h1>`;
             }
 
             if (trimmed.startsWith("## ")) {
-              const heading = escapeHtml(trimmed.replace(/^##\s+/, ""));
+              const headingText = trimmed.replace(/^##\s+/, "");
+              const heading = escapeHtml(headingText);
               const className = heading.includes("PART 2")
                 ? " class=\"part-heading\""
                 : "";
+              const closing = closeSpecialBlocks();
 
-              return `<h2${className}>${heading}</h2>`;
+              inTransitSection = /current transit analysis/i.test(headingText);
+              skipAiAntardashaTimeline = false;
+              inRoadmapSection = isRoadmapHeading(headingText);
+
+              if (isFinalObservationHeading(headingText)) {
+                inTransitSection = false;
+                inRoadmapSection = false;
+                finalObservationOpen = true;
+                return `${closing}<section class="final-observation"><h2>Final Observation</h2>`;
+              }
+
+              if (inTransitSection) {
+                transitAnalysisSectionOpen = true;
+                return `${closing}<section class="report-section transit-analysis-section"><h2>${heading}</h2>`;
+              }
+
+              if (isAntardashaTimelineHeading(headingText) && report.antardasha_timeline?.length) {
+                skipAiAntardashaTimeline = true;
+                return `${closing}<section class="report-section dasha-timeline-section"><h2>${heading}</h2>${buildAntardashaTableHtml()}</section>`;
+              }
+
+              return `${closing}<h2${className}>${heading}</h2>`;
+            }
+
+            if (skipAiAntardashaTimeline) {
+              return "";
             }
 
             if (trimmed.startsWith("### ")) {
-              return `<h3>${escapeHtml(trimmed.replace(/^###\s+/, ""))}</h3>`;
+              const headingText = trimmed.replace(/^###\s+/, "");
+
+              if (isFinalObservationHeading(headingText)) {
+                inTransitSection = false;
+                inRoadmapSection = false;
+                const closing = closeSpecialBlocks();
+                finalObservationOpen = true;
+                return `${closing}<section class="final-observation"><h2>Final Observation</h2>`;
+              }
+
+              if (inTransitSection && isTransitPlanetHeading(headingText)) {
+                const closing = `${closeTransitBox()}${closeRoadmapYear()}`;
+                transitBoxOpen = true;
+                return `${closing}<div class="transit-box"><h3>${escapeHtml(
+                  headingText
+                )}</h3>`;
+              }
+
+              if (inRoadmapSection && isRoadmapYearHeading(headingText)) {
+                const closing = closeRoadmapYear();
+                roadmapYearOpen = true;
+                return `${closing}<div class="roadmap-year"><h3>${escapeHtml(
+                  headingText.replace(/:$/, "")
+                )}</h3>`;
+              }
+
+              return `${closeSpecialBlocks()}<h3>${escapeHtml(headingText)}</h3>`;
             }
 
             if (trimmed.startsWith("#### ")) {
-              return `<h4>${escapeHtml(trimmed.replace(/^####\s+/, ""))}</h4>`;
+              const headingText = trimmed.replace(/^####\s+/, "");
+
+              if (inTransitSection && transitBoxOpen) {
+                const closing = closeTransitSubBox();
+                transitSubBoxOpen = true;
+                return `${closing}<div class="transit-sub-box"><h4>${escapeHtml(
+                  headingText
+                )}</h4>`;
+              }
+
+              if (inRoadmapSection && roadmapYearOpen) {
+                return `<h4 class="roadmap-label">${escapeHtml(headingText)}</h4>`;
+              }
+
+              return `<h4>${escapeHtml(headingText)}</h4>`;
             }
 
             if (trimmed.startsWith("- ")) {
-              return `<p class="bullet">&#8226; ${escapeHtml(trimmed.replace(/^-\s+/, ""))}</p>`;
+              return `<p class="bullet">&#8226; ${escapeHtml(
+                trimmed.replace(/^-\s+/, "")
+              )}</p>`;
             }
 
-            return `<p>${escapeHtml(trimmed)}</p>`;
+            if (isDashaEmphasisLine(trimmed)) {
+              const content = `<p class="dasha-emphasis"><strong>${escapeHtml(trimmed)}</strong></p>`;
+
+              if (dashaEmphasisBoxOpen) {
+                return content;
+              }
+
+              dashaEmphasisBoxOpen = true;
+              return `<div class="summary-card dasha-summary-box dasha-ai-box">${content}`;
+            }
+
+            return `${closeDashaEmphasisBox()}<p>${escapeHtml(trimmed)}</p>`;
           })
           .join("");
+
+        return `${html}${closeSpecialBlocks()}`;
+      };
 
       const chartHtml = report.chart
         ? `
@@ -725,15 +1178,16 @@ export default function Home() {
         ? `
           <section class="pdf-section transit-block">
             <h2>Current Transits</h2>
-            <div class="pdf-grid">
+            <div class="transit-list">
               ${Object.entries(report.transits.transits)
                 .map(
                   ([planet, data]: any) => `
-                    <div class="pdf-card transit-card">
-                      <strong>${escapeHtml(planet)}</strong>
-                      <span>${escapeHtml(data.sign ?? "-")}</span>
-                      <small>${escapeHtml(planet)} in ${escapeHtml(ordinalFromValue(data.house_from_ascendant))} House</small>
-                      <small>${escapeHtml(ordinalFromValue(data.house_from_moon))} House from Moon</small>
+                    <div class="transit-card">
+                      <div class="transit-body">
+                        <h3>${escapeHtml(planet)} in ${escapeHtml(ordinalFromValue(data.house_from_ascendant))} House</h3>
+                        <p>${escapeHtml(planet)} is transiting ${escapeHtml(data.sign ?? "-")}. From Moon, it is in the ${escapeHtml(ordinalFromValue(data.house_from_moon))} House.</p>
+                      </div>
+                      <div class="transit-status">${escapeHtml(data.sign ?? "-")}</div>
                     </div>
                   `
                 )
@@ -804,7 +1258,7 @@ export default function Home() {
                   <strong>${escapeHtml(item.title)}</strong>
                   <small>${escapeHtml(item.meaning)}</small>
                 </div>
-                <span>${escapeHtml(String(item.score))}/100</span>
+                <span class="score-circle">${escapeHtml(String(item.score))}/100</span>
               </div>
             `
           )
@@ -861,7 +1315,7 @@ export default function Home() {
                   (dasha) => `
                     <p>
                       <strong>${escapeHtml(dasha.planet)}</strong>
-                      ${report.current_mahadasha?.planet === dasha.planet ? '<span class="active-dasha">Active Now</span>' : ''}
+                      ${report.current_mahadasha?.planet === dasha.planet ? '<span class="active-text">Active</span>' : ''}
                       ${escapeHtml(dasha.start)} to ${escapeHtml(dasha.end)}
                     </p>
                   `
@@ -871,6 +1325,47 @@ export default function Home() {
           </section>
         `
         : "";
+
+      const currentAntardasha = report.current_dasha_details?.current_antardasha;
+      const nextAntardasha = report.current_dasha_details?.next_antardasha;
+      const dashaDetailsHtml =
+        report.current_mahadasha ||
+        currentAntardasha ||
+        report.antardasha_timeline?.length
+          ? `
+          <section class="pdf-section">
+            <h2>Dasha Summary</h2>
+            <div class="summary-card dasha-summary-box">
+              <p><strong>Current Mahadasha:</strong> ${escapeHtml(report.current_mahadasha?.planet ?? report.current_dasha_details?.current_mahadasha ?? "-")}</p>
+              <p><strong>Start Date:</strong> ${escapeHtml(report.current_mahadasha?.start ?? report.current_dasha_details?.mahadasha_start ?? "-")}</p>
+              <p><strong>End Date:</strong> ${escapeHtml(report.current_mahadasha?.end ?? report.current_dasha_details?.mahadasha_end ?? "-")}</p>
+            </div>
+            ${
+              currentAntardasha
+                ? `
+                <div class="summary-card dasha-summary-box">
+                  <p><strong>Current Antardasha:</strong> ${escapeHtml(currentAntardasha.antardasha)}</p>
+                  <p><strong>Start Date:</strong> ${escapeHtml(currentAntardasha.start)}</p>
+                  <p><strong>End Date:</strong> ${escapeHtml(currentAntardasha.end)}</p>
+                </div>
+              `
+                : ""
+            }
+            ${
+              nextAntardasha
+                ? `
+                <div class="summary-card dasha-summary-box">
+                  <p><strong>Next Antardasha:</strong> ${escapeHtml(nextAntardasha.antardasha)}</p>
+                  <p><strong>Start Date:</strong> ${escapeHtml(nextAntardasha.start)}</p>
+                  <p><strong>End Date:</strong> ${escapeHtml(nextAntardasha.end)}</p>
+                </div>
+              `
+                : ""
+            }
+            ${buildAntardashaTableHtml()}
+          </section>
+        `
+          : "";
 
       const html2canvasModule = await import("html2canvas");
       const jsPDFModule = await import("jspdf");
@@ -883,60 +1378,82 @@ export default function Home() {
       pdfElement.style.top = "0";
       pdfElement.style.width = "794px";
       pdfElement.style.padding = "0";
-      pdfElement.style.backgroundColor = "#fffaf2";
+      pdfElement.style.backgroundColor = "#fffaf0";
       pdfElement.style.color = "#2b1b12";
       pdfElement.style.fontFamily =
-        '"Noto Sans Devanagari", "Inter", "Mangal", "Nirmala UI", Arial, sans-serif';
-      pdfElement.style.fontSize = "15px";
-      pdfElement.style.lineHeight = "1.72";
+        '"Nirmala UI", "Mangal", "Noto Sans Devanagari", "Arial Unicode MS", "Inter", Arial, sans-serif';
+      pdfElement.style.fontSize = "16px";
+      pdfElement.style.lineHeight = "1.95";
 
       pdfElement.innerHTML = `
         <style>
-          .pdf-cover-page {
-            min-height: 1060px;
-            padding: 36px 34px;
-            background: linear-gradient(180deg, #fffaf2 0%, #fff6e6 100%);
+          .pdf-page {
+            width: 794px;
+            min-height: 1123px;
+            padding: 32px;
+            background: #fffaf0;
+            box-sizing: border-box;
+            page-break-after: always;
+            font-family: "Nirmala UI", "Mangal", "Noto Sans Devanagari", "Arial Unicode MS", "Inter", Arial, sans-serif;
+            color: #1f1f1f;
+          }
+
+          .cover-page {
+            min-height: auto !important;
+            padding: 36px;
+            background: #fffaf0;
             page-break-after: always;
             break-after: page;
             box-sizing: border-box;
           }
 
-          .cover-hero {
-            text-align: center;
-            padding: 48px 24px;
-            background: linear-gradient(135deg, #250b3f, #4b1680);
-            color: #ffffff;
-            border-radius: 22px;
-            border-bottom: 10px solid #9b3cff;
+          .report-hero {
+            background: #050505 !important;
+            border-radius: 16px;
+            padding: 46px 32px !important;
+            margin-bottom: 24px;
+            text-align: center !important;
+            display: flex;
+            flex-direction: column;
+            align-items: center !important;
+            justify-content: center !important;
+            border: 1px solid #d4af37;
           }
 
-          .cover-hero h1 {
-            margin: 0;
+          .report-hero h1,
+          .report-hero p {
+            width: 100%;
+            color: #ffffff !important;
+            text-align: center !important;
+          }
+
+          .report-hero h1 {
+            margin: 0 0 10px !important;
             padding: 0;
-            font-size: 38px;
-            font-weight: 900;
-            line-height: 1.25;
-            text-align: center;
-            letter-spacing: 0.3px;
+            font-size: 36px !important;
+            font-weight: 800 !important;
+            line-height: 1.2;
+            letter-spacing: 0.5px;
             font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
           }
 
-          .cover-hero p {
-            margin: 14px 0 0;
+          .report-hero p {
+            margin: 0 !important;
             padding: 0;
-            color: #efe3ff;
-            font-size: 18px;
-            font-weight: 400;
-            line-height: 1.35;
-            text-align: center;
+            font-size: 18px !important;
+            font-weight: 600 !important;
+            line-height: 1.4;
           }
 
-          .cover-card {
+          .info-card {
             margin-top: 28px;
-            background: #f3ecff;
-            border: 1px solid #d8c8ff;
+            margin-bottom: 16px !important;
+            background: #fffaf0;
+            border: 1px solid #e2b64d;
             border-radius: 22px;
             padding: 34px;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
 
           .cover-grid {
@@ -948,7 +1465,7 @@ export default function Home() {
           .cover-grid div span {
             display: block;
             margin-bottom: 8px;
-            color: #5f5870;
+            color: #7a2b00;
             font-size: 12px;
             font-weight: 800;
             letter-spacing: 0.5px;
@@ -957,21 +1474,33 @@ export default function Home() {
 
           .cover-grid div strong {
             display: block;
-            color: #251934;
+            color: #2b1b12;
             font-size: 18px;
             font-weight: 500;
             line-height: 1.4;
           }
 
-          .cover-note {
-            margin-top: 28px;
+          .report-includes-page {
+            min-height: auto !important;
+            padding: 36px;
+            background: #fffaf0;
+            box-sizing: border-box;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          .report-includes {
+            margin-top: 0;
             background: #ffffff;
             border: 1px solid #ead8b8;
             border-radius: 20px;
             padding: 26px;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            margin-bottom: 20px !important;
           }
 
-          .cover-note h3 {
+          .report-includes h3 {
             margin: 0 0 18px;
             color: #8b0000;
             font-size: 22px;
@@ -994,25 +1523,29 @@ export default function Home() {
             font-size: 13px;
           }
 
-          .cover-disclaimer {
-            margin-top: 28px;
+          .disclaimer {
+            margin-top: 14px !important;
             padding: 18px;
             border-left: 5px solid #8b0000;
             background: #ffffff;
             color: #5f4634;
             font-size: 14px;
             line-height: 1.7;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
 
           .pdf-section {
-            margin: 26px 0;
-            margin-bottom: 28px;
-            break-inside: avoid;
-            page-break-inside: avoid;
+            margin-bottom: 18px;
+            page-break-inside: auto;
+            break-inside: auto;
           }
 
-          .pdf-section h2,
-          .pdf-section h3 {
+          .pdf-section h2 {
+            color: #8b0000;
+            font-size: 24px;
+            font-weight: 800;
+            margin: 0 0 18px;
             break-after: avoid;
             page-break-after: avoid;
           }
@@ -1066,6 +1599,148 @@ export default function Home() {
           .transit-card {
             break-inside: avoid;
             page-break-inside: avoid;
+          }
+
+          .transit-list {
+            display: block;
+          }
+
+          .transit-card {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            border: 1px solid #e2b64d;
+            border-radius: 14px;
+            padding: 18px;
+            margin-bottom: 16px;
+            background: #ffffff !important;
+            page-break-inside: avoid;
+          }
+
+          .transit-body {
+            flex: 1;
+          }
+
+          .transit-body h3 {
+            margin: 0 0 6px;
+            color: #111111;
+            font-size: 18px;
+            font-weight: 800;
+            line-height: 1.35;
+          }
+
+          .transit-body p {
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.45;
+            background: transparent !important;
+          }
+
+          .transit-status {
+            min-width: 110px;
+            text-align: center;
+            border-radius: 999px;
+            padding: 8px 14px;
+            font-weight: 800;
+            font-size: 13px;
+            background: #fff3df;
+            color: #8b0000;
+          }
+
+          .dasha-summary,
+          .dasha-summary-box {
+            font-size: 17px;
+            line-height: 1.8;
+            margin-bottom: 20px;
+          }
+
+          .summary-card {
+            border: 1px solid #ead8b8;
+            background: #ffffff !important;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 18px;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          .summary-card div {
+            margin-bottom: 10px;
+            font-size: 15px;
+          }
+
+          .summary-card strong {
+            font-weight: 800;
+          }
+
+          .dasha-summary-box {
+            margin: 12px 0 18px !important;
+            padding: 16px !important;
+            overflow: visible !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          .dasha-ai-box {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+          }
+
+          .dasha-summary p,
+          .dasha-summary-box p,
+          .dasha-emphasis {
+            color: #111111 !important;
+            font-size: 16px !important;
+            font-weight: 800 !important;
+            margin: 0 0 12px !important;
+            background: transparent !important;
+            padding: 3px 0 4px !important;
+            line-height: 1.75 !important;
+            overflow: visible !important;
+          }
+
+          .dasha-summary strong,
+          .dasha-summary-box strong,
+          .dasha-emphasis strong {
+            font-weight: 900;
+            color: #111111;
+          }
+
+          .dasha-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 14px 0 18px;
+            border-radius: 12px;
+            overflow: hidden;
+            font-size: 15px;
+            background: #ffffff !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          .dasha-table th {
+            background: #9b0000 !important;
+            color: #ffffff !important;
+            padding: 12px;
+            text-align: left;
+            font-weight: 800;
+          }
+
+          .dasha-table td {
+            padding: 12px;
+            border-bottom: 1px solid #ead8b8;
+            font-weight: 700 !important;
+            color: #111111 !important;
+          }
+
+          .dasha-table td strong {
+            font-weight: 800 !important;
+            color: #111111 !important;
+          }
+
+          .dasha-table tr:nth-child(even) td {
+            background: #fff7e8 !important;
           }
 
           .chart-card h3 {
@@ -1207,21 +1882,22 @@ export default function Home() {
             line-height: 1.35;
           }
 
-          .score-row span {
-            flex: 0 0 auto;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 56px;
-            height: 32px;
-            padding: 0;
-            border-radius: 999px;
-            background: #8b0000;
+          .score-circle {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: #a40000;
             color: #ffffff;
-            font-size: 12px;
-            font-weight: 800;
-            line-height: 1;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
             text-align: center;
+            font-weight: 700;
+            font-size: 15px;
+            padding: 0 !important;
+            line-height: 1 !important;
+            box-sizing: border-box !important;
+            flex: 0 0 auto;
           }
 
           .score-all-heading {
@@ -1346,35 +2022,176 @@ export default function Home() {
           }
 
           .pdf-list p {
+            display: flex;
+            align-items: center;
+            gap: 12px;
             margin: 0 0 6px;
             padding-bottom: 6px;
             border-bottom: 1px solid #eeeaf8;
             break-inside: avoid;
           }
 
-          .active-dasha {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 8px;
-            min-width: 74px;
-            height: 24px;
-            padding: 0 8px;
-            border-radius: 999px;
-            background: #8b0000;
-            color: #ffffff;
-            font-size: 10px;
+          .active-text {
+            color: #a40000 !important;
+            font-size: 14px;
             font-weight: 800;
             line-height: 1;
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            padding: 0 !important;
+          }
+
+          .active-badge,
+          .active-dasha {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            margin: 0 8px;
+            min-width: 100px !important;
+            height: 34px !important;
+            padding: 0 16px !important;
+            border-radius: 999px !important;
+            background: #a40000 !important;
+            color: #ffffff !important;
+            font-size: 14px;
+            font-weight: 700;
+            line-height: 34px !important;
+            text-align: center !important;
+            box-sizing: border-box !important;
+            vertical-align: middle !important;
+          }
+
+          .pdf-content,
+          .pdf-content section,
+          .pdf-content p,
+          .pdf-content li {
+            background: transparent !important;
+          }
+
+          .pdf-flow > p,
+          .pdf-flow > .bullet,
+          .pdf-flow > li,
+          .report-content p,
+          .report-content li {
+            background: transparent !important;
+            padding: 0 !important;
+          }
+
+          .info-card,
+          .chart-card,
+          .life-card,
+          .summary-card,
+          .transit-card,
+          .transit-box,
+          .roadmap-year,
+          .final-observation,
+          .dasha-table {
+            background: #ffffff !important;
+          }
+
+          .transit-box {
+            border: 1px solid #d4af37;
+            border-radius: 12px;
+            padding: 16px;
+            margin: 14px 0;
+            background: #ffffff !important;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+
+          .transit-box h3 {
+            margin: 0 0 10px;
+            color: #8b0000;
+            font-size: 20px;
+            font-weight: 800;
+            line-height: 1.45;
+          }
+
+          .transit-sub-box {
+            border-left: 4px solid #9b0000;
+            padding: 10px 14px;
+            margin: 10px 0;
+            background: #ffffff !important;
+            border-radius: 10px;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+
+          .transit-sub-box h4 {
+            margin: 0 0 8px;
+            padding: 0;
+            color: #8b0000;
+            font-size: 16px;
+            font-weight: 800;
+            line-height: 1.45;
+          }
+
+          .roadmap-year {
+            margin: 12px 0;
+            padding: 16px;
+            border: 1px solid #d4af37;
+            border-radius: 12px;
+            background: #ffffff !important;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+
+          .roadmap-year h3 {
+            margin: 0 0 8px;
+            padding: 0;
+            color: #8b0000;
+            font-size: 20px;
+            font-weight: 800;
+            line-height: 1.45;
+          }
+
+          .roadmap-year .roadmap-label {
+            margin: 8px 0 4px;
+            padding: 0;
+            color: #8b0000;
+            font-size: 15px;
+            font-weight: 800;
+            line-height: 1.45;
+          }
+
+          .final-observation {
+            margin-top: 20px;
+            padding: 18px;
+            border: 1.5px solid #d4af37;
+            border-radius: 12px;
+            background: #ffffff !important;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+
+          .final-observation h2 {
+            color: #8b0000;
+            margin: 0 0 10px;
+          }
+
+          .transit-analysis-section {
+            page-break-before: auto !important;
+            break-before: auto !important;
+            page-break-inside: auto !important;
+          }
+
+          .transit-analysis-section h2 {
+            margin-bottom: 14px !important;
+          }
+
+          .dasha-timeline-section {
+            page-break-inside: auto !important;
+            break-inside: auto !important;
           }
 
           .pdf-content h1 {
             margin: 30px 0 20px;
-            padding: 18px 0 8px;
+            padding: 20px 0 12px;
             color: #750606;
             font-size: 22px;
             font-weight: 700;
-            line-height: 1.7;
+            line-height: 1.9;
             break-after: avoid;
             box-sizing: border-box;
             overflow: visible;
@@ -1383,12 +2200,12 @@ export default function Home() {
           }
 
           .pdf-content h2 {
-            margin: 20px 0 12px;
-            padding: 14px 0 6px;
+            margin: 18px 0 10px;
+            padding: 14px 0 8px;
             color: #8b0000;
             font-size: 22px;
             font-weight: 700;
-            line-height: 1.7;
+            line-height: 1.9;
             break-after: avoid;
             box-sizing: border-box;
             overflow: visible;
@@ -1400,12 +2217,12 @@ export default function Home() {
           }
 
           .pdf-content h3 {
-            margin: 20px 0 12px;
-            padding: 14px 0 6px;
+            margin: 16px 0 10px;
+            padding: 12px 0 8px;
             color: #8b0000;
             font-size: 22px;
             font-weight: 700;
-            line-height: 1.7;
+            line-height: 1.9;
             break-after: avoid;
             box-sizing: border-box;
             overflow: visible;
@@ -1414,27 +2231,48 @@ export default function Home() {
 
           .pdf-content h4 {
             margin: 16px 0 8px;
-            padding: 8px 0 4px;
+            padding: 10px 0 7px;
             color: #750606;
             font-size: 15px;
             font-weight: 800;
-            line-height: 1.6;
+            line-height: 1.85;
             break-after: avoid;
             font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
           }
 
+          .pdf-content .transit-box h3 {
+            margin: 0 0 10px;
+            padding: 0;
+            color: #8b0000;
+            font-size: 20px;
+            font-weight: 800;
+            line-height: 1.45;
+          }
+
+          .pdf-content .transit-sub-box h4 {
+            margin: 0 0 10px;
+            padding: 0;
+            color: #8b0000;
+            font-size: 20px;
+            font-weight: 800;
+            line-height: 1.45;
+          }
+
           .pdf-content p {
-            margin: 0 0 14px;
-            padding: 4px 0 5px;
-            font-size: 15.5px;
-            line-height: 1.75;
+            margin: 0 0 18px;
+            padding: 8px 0 10px !important;
+            background: transparent !important;
+            font-family: "Nirmala UI", "Mangal", "Noto Sans Devanagari", "Arial Unicode MS", "Inter", Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.95;
             font-weight: 400;
             text-align: left;
             word-break: normal;
-            overflow-wrap: anywhere;
+            overflow-wrap: break-word;
             break-inside: avoid;
             box-sizing: border-box;
             overflow: visible;
+            white-space: normal;
             orphans: 3;
             widows: 3;
           }
@@ -1442,22 +2280,41 @@ export default function Home() {
           .pdf-content .bullet {
             margin-left: 14px;
             font-size: 16px;
-            line-height: 1.8;
+            line-height: 1.95;
+            padding: 7px 0 9px !important;
           }
 
           .pdf-content .gap {
             height: 8px;
           }
+
+          .page-break-before {
+            height: 0;
+            margin: 0;
+            padding: 0;
+            break-before: page;
+            page-break-before: always;
+          }
+
+          .force-new-page {
+            break-before: auto !important;
+            page-break-before: auto !important;
+          }
+
+          .no-large-gap {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+          }
         </style>
 
-        <main class="pdf-content pdf-flow" style="width: 794px; background: #fffaf2;">
-          <section class="pdf-cover-page">
-            <div class="cover-hero">
-              <h1>Shrivinayaka AI Astrology</h1>
+        <main class="pdf-content pdf-flow" style="width: 794px; background: #fffaf0;">
+          <section class="cover-page">
+            <div class="report-hero">
+              <h1>Shrivinayaka Astrology</h1>
               <p>${escapeHtml(report.cover_title || getCoverTitle(report.report_style || "full"))}</p>
             </div>
 
-            <div class="cover-card">
+            <div class="info-card">
               <div class="cover-grid">
                 <div><span>Name</span><strong>${escapeHtml(report.name)}</strong></div>
                 <div><span>Report Type</span><strong>${escapeHtml(report.report_type_label || getReportStyleLabel(report.report_style || "full"))}</strong></div>
@@ -1476,7 +2333,10 @@ export default function Home() {
               </div>
             </div>
 
-            <div class="cover-note">
+          </section>
+
+          <section class="report-includes-page">
+            <div class="report-includes">
               <h3>Report Includes</h3>
               <div class="cover-tags">
                 <span>Birth Chart</span>
@@ -1488,7 +2348,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div class="cover-disclaimer">
+            <div class="disclaimer disclaimer-box">
               This report is based on Vedic astrology principles and is intended for guidance and self-reflection.
             </div>
           </section>
@@ -1496,13 +2356,18 @@ export default function Home() {
           ${chartHtml}
           ${transitsHtml}
           ${birthChartsHtml}
+          ${dashaDetailsHtml}
           ${dashaTimelineHtml}
           ${lifeAreaScoresHtml}
-          ${markdownToHtml(formatReportMarkdown(report.report))}
+          <div class="page-break-before"></div>
+          ${markdownToHtml(keepOnlyLastFinalObservation(formatReportMarkdown(report.report)))}
         </main>
       `;
 
       document.body.appendChild(pdfElement);
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
       await new Promise((resolve) => window.setTimeout(resolve, 500));
 
       const flow = pdfElement.querySelector(".pdf-flow") as HTMLElement | null;
@@ -1523,7 +2388,7 @@ export default function Home() {
       const addCanvasPdfFooters = () => {
         const totalPages = pdf.getNumberOfPages();
 
-        for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+        for (let pageNumber = 2; pageNumber <= totalPages; pageNumber += 1) {
           pdf.setPage(pageNumber);
           pdf.setDrawColor(225, 225, 235);
           pdf.line(pageMargin, pdfHeight - 12, pdfWidth - pageMargin, pdfHeight - 12);
@@ -1541,6 +2406,19 @@ export default function Home() {
         const block = blocks[blockIndex];
         const tagName = block.tagName.toLowerCase();
 
+        if (block.classList.contains("page-break-before")) {
+          if (y > pageMargin) {
+            pdf.addPage();
+          }
+          y = pageMargin;
+          continue;
+        }
+
+        if (block.classList.contains("cover-page") && y > pageMargin) {
+          pdf.addPage();
+          y = pageMargin;
+        }
+
         if ((tagName === "h1" || tagName === "h2" || tagName === "h3") && y > pdfHeight - 52) {
           pdf.addPage();
           y = pageMargin;
@@ -1548,28 +2426,94 @@ export default function Home() {
 
         const canvas = await html2canvas(block, {
           scale: 2,
-          backgroundColor: "#fffaf2",
+          backgroundColor: null,
           useCORS: true,
           windowWidth: flow.scrollWidth,
         });
 
         const pageImgData = canvas.toDataURL("image/png");
         const imageHeight = (canvas.height * imgWidth) / canvas.width;
+        const maxImageHeight = bottomLimit - pageMargin;
+
+        if (imageHeight > maxImageHeight) {
+          if (y > pageMargin) {
+            pdf.addPage();
+            y = pageMargin;
+          }
+
+          let sourceY = 0;
+
+          while (sourceY < canvas.height) {
+            const availableHeight = bottomLimit - y;
+            const sliceHeightPx = Math.min(
+              canvas.height - sourceY,
+              Math.floor((availableHeight * canvas.width) / imgWidth)
+            );
+
+            if (sliceHeightPx <= 0) {
+              pdf.addPage();
+              y = pageMargin;
+              continue;
+            }
+
+            const sliceCanvas = document.createElement("canvas");
+            sliceCanvas.width = canvas.width;
+            sliceCanvas.height = sliceHeightPx;
+
+            const sliceContext = sliceCanvas.getContext("2d");
+
+            if (!sliceContext) {
+              throw new Error("Unable to create PDF page slice");
+            }
+
+            sliceContext.drawImage(
+              canvas,
+              0,
+              sourceY,
+              canvas.width,
+              sliceHeightPx,
+              0,
+              0,
+              canvas.width,
+              sliceHeightPx
+            );
+
+            const sliceImageHeight = (sliceHeightPx * imgWidth) / canvas.width;
+            pdf.addImage(
+              sliceCanvas.toDataURL("image/png"),
+              "PNG",
+              pageMargin,
+              y,
+              imgWidth,
+              sliceImageHeight
+            );
+
+            sourceY += sliceHeightPx;
+
+            if (sourceY < canvas.height) {
+              pdf.addPage();
+              y = pageMargin;
+            } else {
+              y += sliceImageHeight + 3.5;
+            }
+          }
+
+          continue;
+        }
 
         if (y + imageHeight > bottomLimit && y > pageMargin) {
           pdf.addPage();
           y = pageMargin;
         }
 
-        const finalHeight = Math.min(imageHeight, bottomLimit - y);
-        pdf.addImage(pageImgData, "PNG", pageMargin, y, imgWidth, finalHeight);
-        y += finalHeight + 3.5;
+        pdf.addImage(pageImgData, "PNG", pageMargin, y, imgWidth, imageHeight);
+        y += imageHeight + 3.5;
       }
 
       addCanvasPdfFooters();
       document.body.removeChild(pdfElement);
 
-      pdf.save("shrivinayaka-astrology-report.pdf");
+      pdf.save(pdfFileName);
       return;
     }
 
@@ -1584,9 +2528,9 @@ export default function Home() {
       const bottomLimit = pageHeight - 24;
       let y = 24;
 
-      const purple: [number, number, number] = [117, 6, 6];
-      const palePurple: [number, number, number] = [245, 240, 255];
-      const gold: [number, number, number] = [117, 6, 6];
+      const purple: [number, number, number] = [139, 0, 0];
+      const palePurple: [number, number, number] = [255, 250, 240];
+      const gold: [number, number, number] = [184, 134, 11];
       const ink: [number, number, number] = [32, 32, 36];
       const muted: [number, number, number] = [92, 92, 104];
 
@@ -1620,7 +2564,7 @@ export default function Home() {
       const addFooters = () => {
         const totalPages = pdf.getNumberOfPages();
 
-        for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+        for (let pageNumber = 2; pageNumber <= totalPages; pageNumber += 1) {
           pdf.setPage(pageNumber);
           addFooter(pageNumber, totalPages);
         }
@@ -1716,29 +2660,30 @@ export default function Home() {
         pdf.setFillColor(255, 250, 242);
         pdf.rect(0, 0, pageWidth, pageHeight, "F");
 
-        pdf.setFillColor(37, 11, 63);
-        pdf.roundedRect(margin, 18, contentWidth, 54, 4, 4, "F");
-        pdf.setFillColor(155, 60, 255);
-        pdf.rect(margin, 68, contentWidth, 4, "F");
+        pdf.setFillColor(5, 5, 5);
+        pdf.setDrawColor(212, 175, 55);
+        pdf.roundedRect(margin, 18, contentWidth, 66, 6, 6, "FD");
+        pdf.setFillColor(212, 175, 55);
+        pdf.rect(margin, 80, contentWidth, 3, "F");
 
         pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(25);
-        pdf.setTextColor(245, 240, 255);
-        pdf.text("Shrivinayaka AI Astrology", pageWidth / 2, 39, {
+        pdf.setFontSize(29);
+        pdf.setTextColor(212, 175, 55);
+        pdf.text("Shrivinayaka Astrology", pageWidth / 2, 42, {
           align: "center",
         });
 
         pdf.setFont("helvetica", "normal");
-        pdf.setFontSize(12);
-        pdf.setTextColor(239, 227, 255);
-        pdf.text(coverTitle, pageWidth / 2, 52, {
+        pdf.setFontSize(13.5);
+        pdf.setTextColor(255, 255, 255);
+        pdf.text(coverTitle, pageWidth / 2, 58, {
           align: "center",
           maxWidth: contentWidth - 18,
         });
 
-        const cardY = 86;
-        pdf.setFillColor(243, 236, 255);
-        pdf.setDrawColor(216, 200, 255);
+        const cardY = 98;
+        pdf.setFillColor(255, 250, 240);
+        pdf.setDrawColor(226, 182, 77);
         pdf.roundedRect(margin, cardY, contentWidth, 104, 4, 4, "FD");
 
         const fields = [
@@ -1767,7 +2712,7 @@ export default function Home() {
 
           pdf.setFont("helvetica", "bold");
           pdf.setFontSize(7.5);
-          pdf.setTextColor(95, 88, 112);
+          pdf.setTextColor(122, 43, 0);
           pdf.text(String(fieldLabel).toUpperCase(), x, fieldY);
 
           pdf.setFont("helvetica", "normal");
@@ -1778,8 +2723,8 @@ export default function Home() {
           });
         });
 
-        const noteY = 204;
-        pdf.setFillColor(255, 255, 255);
+        const noteY = 216;
+        pdf.setFillColor(255, 250, 240);
         pdf.setDrawColor(234, 216, 184);
         pdf.roundedRect(margin, noteY, contentWidth, 44, 4, 4, "FD");
 
@@ -1834,21 +2779,21 @@ export default function Home() {
       };
 
       const drawHeader = () => {
-        pdf.setFillColor(35, 20, 65);
+        pdf.setFillColor(5, 5, 5);
         pdf.rect(0, 0, pageWidth, 46, "F");
-        pdf.setFillColor(124, 58, 237);
+        pdf.setFillColor(212, 175, 55);
         pdf.rect(0, 43, pageWidth, 3, "F");
 
         pdf.setFont("helvetica", "bold");
         pdf.setFontSize(24);
-        pdf.setTextColor(245, 240, 255);
-        pdf.text("Shrivinayaka AI Astrology", pageWidth / 2, 20, {
+        pdf.setTextColor(212, 175, 55);
+        pdf.text("Shrivinayaka Astrology", pageWidth / 2, 20, {
           align: "center",
         });
 
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(11);
-        pdf.setTextColor(224, 213, 255);
+        pdf.setTextColor(255, 255, 255);
         const coverTitle = report.cover_title || getCoverTitle(report.report_style || "full");
         pdf.text(coverTitle, pageWidth / 2, 31, {
           align: "center",
@@ -2110,12 +3055,12 @@ export default function Home() {
 
           if (report.current_mahadasha?.planet === dasha.planet) {
             pdf.setFillColor(139, 0, 0);
-            pdf.roundedRect(margin + 22, y - 5, 22, 7, 3.5, 3.5, "F");
+            pdf.roundedRect(margin + 22, y - 6, 25, 8.5, 4.25, 4.25, "F");
             pdf.setFont("helvetica", "bold");
             pdf.setFontSize(6);
             pdf.setTextColor(255, 255, 255);
-            pdf.text("Active Now", margin + 33, y - 0.6, { align: "center" });
-            dateX = margin + 48;
+            pdf.text("Active Now", margin + 34.5, y - 1.2, { align: "center" });
+            dateX = margin + 51;
           }
 
           pdf.setFont("helvetica", "normal");
@@ -2163,11 +3108,11 @@ export default function Home() {
           pdf.text(item.meaning, x + 5, rowY + 4, { maxWidth: width - 31 });
 
           pdf.setFillColor(border[0], border[1], border[2]);
-          pdf.roundedRect(x + width - 30, rowY - 5, 24, 7, 3.5, 3.5, "F");
+          pdf.roundedRect(x + width - 31, rowY - 7, 25, 10, 5, 5, "F");
           pdf.setFont("helvetica", "bold");
           pdf.setFontSize(7);
           pdf.setTextColor(255, 255, 255);
-          pdf.text(`${item.score}/100`, x + width - 18, rowY - 0.5, {
+          pdf.text(`${item.score}/100`, x + width - 18.5, rowY - 2.45, {
             align: "center",
           });
         });
@@ -2338,7 +3283,7 @@ export default function Home() {
       writeReport();
       addFooters();
 
-      pdf.save("shrivinayaka-astrology-report.pdf");
+      pdf.save(pdfFileName);
     } catch (error) {
       console.error(error);
       alert("PDF download failed");
@@ -2472,7 +3417,7 @@ export default function Home() {
           </div>
 
           <div className="grid gap-5 md:grid-cols-3">
-            <div className="rounded-2xl border border-[#ead8b8] bg-white p-6 shadow-md transition hover:-translate-y-1">
+            <div className="flex h-full min-h-[700px] flex-col rounded-[20px] border border-[#ead8b8] bg-white p-[30px] shadow-md transition hover:-translate-y-1">
               <h3 className="text-2xl font-bold text-[#5c0000]">Personal Consultation Report</h3>
               <div className="mt-3 flex items-end gap-3">
                 <p className="text-4xl font-extrabold text-[#8b0000]">₹49</p>
@@ -2481,7 +3426,7 @@ export default function Home() {
               <p className="mt-3 inline-block rounded-full bg-[#fff1d6] px-3 py-1 text-sm font-bold text-[#7a2b00]">
                 Launch Offer
               </p>
-              <ul className="mt-5 space-y-3 text-[#4b3528]">
+              <ul className="mt-5 flex-1 space-y-3 text-[#4b3528]">
                 <li>Ask one important question</li>
                 <li>Dasha + transit based answer</li>
                 <li>Timing guidance</li>
@@ -2491,13 +3436,13 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => choosePremiumReport("consultation")}
-                className="mt-6 w-full rounded-xl bg-[#8b0000] px-5 py-3 font-bold text-white hover:bg-[#5c0000]"
+                className="mt-auto h-16 min-h-16 max-h-16 w-full rounded-[14px] border-0 bg-[#a40000] px-5 text-lg font-bold text-white hover:bg-[#8b0000]"
               >
-                Select Consultation
+                Select
               </button>
             </div>
 
-            <div className="rounded-2xl border border-[#ead8b8] bg-white p-6 shadow-md transition hover:-translate-y-1">
+            <div className="flex h-full min-h-[700px] flex-col rounded-[20px] border border-[#ead8b8] bg-white p-[30px] shadow-md transition hover:-translate-y-1">
               <h3 className="text-2xl font-bold text-[#5c0000]">Complete Astrology Report</h3>
               <div className="mt-3 flex items-end gap-3">
                 <p className="text-4xl font-extrabold text-[#8b0000]">₹99</p>
@@ -2506,7 +3451,7 @@ export default function Home() {
               <p className="mt-3 inline-block rounded-full bg-[#fff1d6] px-3 py-1 text-sm font-bold text-[#7a2b00]">
                 Launch Offer
               </p>
-              <ul className="mt-5 space-y-3 text-[#4b3528]">
+              <ul className="mt-5 flex-1 space-y-3 text-[#4b3528]">
                 <li>Personality analysis</li>
                 <li>Career and finance</li>
                 <li>Marriage and relationships</li>
@@ -2518,22 +3463,26 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => choosePremiumReport("full")}
-                className="mt-6 w-full rounded-xl bg-[#8b0000] px-5 py-3 font-bold text-white hover:bg-[#5c0000]"
+                className="mt-auto h-16 min-h-16 max-h-16 w-full rounded-[14px] border-0 bg-[#a40000] px-5 text-lg font-bold text-white hover:bg-[#8b0000]"
               >
-                Select Complete
+                Select
               </button>
             </div>
 
-            <div className="rounded-2xl border border-[#8b0000] bg-[#fff1d6] p-6 shadow-md transition hover:-translate-y-1">
+            <div className={`flex h-full min-h-[700px] flex-col rounded-[20px] border bg-[#fff7e8] p-[30px] shadow-md transition hover:-translate-y-1 ${
+              formData.report_style === "full_plus_consultation"
+                ? "border-2 border-[#8b0000]"
+                : "border-[#8b0000]"
+            }`}>
               <p className="mb-3 inline-block rounded-full bg-[#8b0000] px-3 py-1 text-sm font-bold text-white">
-                Most Popular
+                Recommended
               </p>
               <h3 className="text-2xl font-bold text-[#5c0000]">Complete Astrology + Consultation Report</h3>
               <div className="mt-3 flex items-end gap-3">
                 <p className="text-4xl font-extrabold text-[#8b0000]">₹149</p>
                 <p className="pb-1 text-lg text-gray-500 line-through">₹199</p>
               </div>
-              <ul className="mt-5 space-y-3 text-[#4b3528]">
+              <ul className="mt-5 flex-1 space-y-3 text-[#4b3528]">
                 <li>Complete astrology report</li>
                 <li>One personal question</li>
                 <li>Direct answer</li>
@@ -2545,9 +3494,9 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => choosePremiumReport("full_plus_consultation")}
-                className="mt-6 w-full rounded-xl bg-[#8b0000] px-5 py-3 font-bold text-white hover:bg-[#5c0000]"
+                className="mt-auto h-16 min-h-16 max-h-16 w-full rounded-[14px] border-0 bg-[#a40000] px-5 text-lg font-bold text-white hover:bg-[#8b0000]"
               >
-                Select Best Value
+                Select
               </button>
             </div>
           </div>
@@ -2587,53 +3536,211 @@ export default function Home() {
             placeholder="Your Name *"
             value={formData.name}
             required
-            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
+            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 pr-36 text-[#2b1b12] outline-none focus:border-[#8b0000]"
             onChange={handleChange}
           />
 
-          <label className="block text-sm font-semibold text-[#5c0000]">
-            Date of Birth * (DD/MM/YYYY)
-          </label>
-          <input
-            type="text"
-            name="birth_date"
-            placeholder="DD/MM/YYYY"
-            value={formData.birth_date}
-            inputMode="numeric"
-            maxLength={10}
-            required
-            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
-            onChange={handleBirthDateChange}
-          />
+          <div>
+            <label className="font-bold text-[#8b0000]">
+              Date of Birth * (DD/MM/YYYY)
+            </label>
 
-          <label className="block text-sm font-semibold text-[#5c0000]">
-            Time of Birth * (HH:MM)
+            <div className="mt-2 grid grid-cols-3 gap-3">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={2}
+                placeholder="DD"
+                value={formData.birth_day}
+                onChange={(e) =>
+                  updateBirthDatePart("birth_day", e.target.value)
+                }
+                required
+                className="rounded-xl border border-[#ead8b8] bg-white p-3 text-center text-[#2b1b12]"
+              />
+
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={2}
+                placeholder="MM"
+                value={formData.birth_month}
+                onChange={(e) =>
+                  updateBirthDatePart("birth_month", e.target.value)
+                }
+                required
+                className="rounded-xl border border-[#ead8b8] bg-white p-3 text-center text-[#2b1b12]"
+              />
+
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="YYYY"
+                value={formData.birth_year}
+                onChange={(e) =>
+                  updateBirthDatePart("birth_year", e.target.value)
+                }
+                required
+                className="rounded-xl border border-[#ead8b8] bg-white p-3 text-center text-[#2b1b12]"
+              />
+            </div>
+          </div>
+
+          <label className="font-bold text-[#8b0000]">
+            Time of Birth *
           </label>
           <input
             type="time"
             name="birth_time"
-            value={formData.birth_time}
             required
-            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
+            value={formData.birth_time}
             onChange={handleChange}
+            className="w-full rounded-xl border border-[#ead8b8] bg-white p-3 text-[#2b1b12]"
           />
 
           <p className="rounded-xl border border-[#d4a017]/50 bg-[#fff6e6] p-3 text-sm text-[#8b0000]">
             ⚠️ Time of Birth should be as accurate as possible. A difference of even 10-15 minutes can change house placements and prediction accuracy.
           </p>
 
-          <label className="block text-sm font-semibold text-[#5c0000]">
-            Place of Birth *
-          </label>
-          <input
-            type="text"
-            name="birth_place"
-            placeholder="Birth Place *"
-            value={formData.birth_place}
-            required
-            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
-            onChange={handleChange}
-          />
+          <div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <label className="block text-sm font-semibold text-[#5c0000]">
+                Place of Birth *
+              </label>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setManualCoordinatesMode(!useManualCoordinates)
+                }
+                className="rounded-xl bg-[#8b0000] px-4 py-2 text-sm font-bold text-white hover:bg-[#5c0000]"
+              >
+                {useManualCoordinates
+                  ? "Search Place Instead"
+                  : "Enter Coordinates Manually"}
+              </button>
+            </div>
+
+            {!useManualCoordinates ? (
+              <>
+                <input
+                  type="text"
+                  name="sv_place_lookup_no_store"
+                  id="sv_place_lookup_no_store"
+                  placeholder="Search birth place"
+                  value={placeQuery}
+                  required
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                  readOnly
+                  onFocus={(e) => {
+                    e.currentTarget.removeAttribute("readonly");
+                  }}
+                  className="w-full rounded-xl border border-[#ead8b8] bg-white p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
+                  onChange={(e) => searchPlaces(e.target.value)}
+                />
+
+                {placeResults.length > 0 && (
+                  <div className="mt-2 max-h-72 overflow-y-auto rounded-xl border border-[#ead8b8] bg-white">
+                    {placeResults.map((place, index) => (
+                      <button
+                        key={`${place.display_name}-${index}`}
+                        type="button"
+                        onClick={() => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            birth_place: place.display_name,
+                            latitude: String(place.lat),
+                            longitude: String(place.lon),
+                            use_manual_coordinates: false,
+                          }));
+                          setPlaceQuery(place.display_name);
+                          setPlaceResults([]);
+                        }}
+                        className="block w-full border-b border-[#ead8b8] p-3 text-left last:border-b-0 hover:bg-[#fff1d6]"
+                      >
+                        <div className="font-bold text-[#8b0000]">
+                          {place.name || place.display_name}
+                        </div>
+
+                        <div className="text-sm text-[#6b4a35]">
+                          {place.display_name}
+                        </div>
+
+                        <div className="text-xs text-gray-500">
+                          {place.lat}, {place.lon}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  name="sv_manual_location_no_store"
+                  id="sv_manual_location_no_store"
+                  placeholder="Place Name"
+                  value={formData.birth_place}
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-form-type="other"
+                  spellCheck={false}
+                  readOnly
+                  onFocus={(e) => {
+                    e.currentTarget.removeAttribute("readonly");
+                  }}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      birth_place: e.target.value,
+                      use_manual_coordinates: true,
+                    }))
+                  }
+                  required
+                  className="w-full rounded-xl border border-[#ead8b8] bg-white p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
+                />
+
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="Latitude"
+                    value={formData.latitude}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        latitude: e.target.value,
+                        use_manual_coordinates: true,
+                      }))
+                    }
+                    required
+                    className="rounded-xl border border-[#ead8b8] bg-white p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
+                  />
+
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="Longitude"
+                    value={formData.longitude}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        longitude: e.target.value,
+                        use_manual_coordinates: true,
+                      }))
+                    }
+                    required
+                    className="rounded-xl border border-[#ead8b8] bg-white p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
+                  />
+                </div>
+              </>
+            )}
+          </div>
 
           <label className="block text-sm font-semibold text-[#5c0000]">
             Report Type *
@@ -2641,7 +3748,7 @@ export default function Home() {
           <select
             name="report_type"
             value={formData.report_type}
-            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
+            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 pr-36 text-[#2b1b12] outline-none focus:border-[#8b0000]"
             onChange={handleChange}
           >
             <option value="free">Free Report</option>
@@ -2653,10 +3760,11 @@ export default function Home() {
               <label className="block text-sm font-semibold text-[#5c0000]">
                 Premium Report Type *
               </label>
+              <div className="relative">
               <select
             name="report_style"
             value={formData.report_style}
-            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
+            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 pr-36 text-[#2b1b12] outline-none focus:border-[#8b0000]"
             onChange={handleChange}
           >
             <option value="consultation">
@@ -2669,6 +3777,15 @@ export default function Home() {
               Complete Astrology + Consultation Report - ₹149
             </option>
           </select>
+              {formData.report_style === "full_plus_consultation" && (
+                <span className="pointer-events-none absolute left-[420px] top-1/2 -translate-y-1/2 rounded-full bg-[#fff1d6] px-3 py-1 font-serif text-sm font-bold italic text-[#8b0000] shadow-sm max-md:hidden">
+                  Best Value
+                </span>
+              )}
+              </div>
+              <p className="hidden">
+                Recommended: Complete Astrology + Consultation Report - ₹149
+              </p>
             </>
           )}
 
@@ -2975,6 +4092,11 @@ export default function Home() {
                         <h3 className="mb-3 mt-8 text-xl font-bold text-[#5c0000]">
                           {children}
                         </h3>
+                      ),
+                      h4: ({ children }) => (
+                        <h4 className="mb-3 mt-8 text-xl font-bold text-[#5c0000]">
+                          {children}
+                        </h4>
                       ),
                       p: ({ children }) => (
                         <p className="mb-5 text-lg leading-8 text-[#3a281f]">

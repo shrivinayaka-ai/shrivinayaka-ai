@@ -1,8 +1,9 @@
 def get_coordinates(place):
 
-    place = place.lower().strip()
+    original_place = place.strip()
+    place = original_place.lower()
 
-    # deterministic database (NO API, NO geopy)
+    # deterministic database first, then geopy fallback for searched places
     locations = {
         "delhi": {"latitude": 28.6139, "longitude": 77.2090},
         "new delhi": {"latitude": 28.6139, "longitude": 77.2090},
@@ -14,6 +15,20 @@ def get_coordinates(place):
 
     if place in locations:
         return locations[place]
+
+    try:
+        from geopy.geocoders import Nominatim
+
+        geolocator = Nominatim(user_agent="shrivinayaka_ai_astrology")
+        location = geolocator.geocode(original_place, exactly_one=True)
+
+        if location:
+            return {
+                "latitude": location.latitude,
+                "longitude": location.longitude
+            }
+    except Exception:
+        pass
 
     return {
         "error": "Location not found. Please use: Delhi, Mumbai, Kolkata, Chennai, Bangalore"

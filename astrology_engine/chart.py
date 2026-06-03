@@ -174,18 +174,38 @@ def set_lahiri_mode():
     swe.set_sid_mode(swe.SIDM_LAHIRI)
 
 
-def generate_chart(birth_date, birth_time, birth_place):
+def generate_chart(
+    birth_date,
+    birth_time,
+    birth_place,
+    latitude=None,
+    longitude=None,
+    use_manual_coordinates=False
+):
 
     set_lahiri_mode()
 
     # ---------------- LOCATION ----------------
-    loc = get_coordinates(birth_place)
+    if use_manual_coordinates:
+        if latitude is None or longitude is None:
+            return {"error": "Latitude and longitude are required."}
 
-    if "error" in loc:
-        return loc
+        loc_lat = float(latitude)
+        loc_lon = float(longitude)
 
-    loc_lat = loc["latitude"]
-    loc_lon = loc["longitude"]
+        if not -90 <= loc_lat <= 90:
+            return {"error": "Latitude must be between -90 and 90."}
+
+        if not -180 <= loc_lon <= 180:
+            return {"error": "Longitude must be between -180 and 180."}
+    else:
+        loc = get_coordinates(birth_place)
+
+        if "error" in loc:
+            return loc
+
+        loc_lat = loc["latitude"]
+        loc_lon = loc["longitude"]
 
     # ---------------- TIME ----------------
     dt = datetime.strptime(
