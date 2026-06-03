@@ -826,8 +826,6 @@ export default function Home() {
         JSON.stringify(pendingPayload)
       );
 
-      const useCallbackRedirect = window.location.protocol === "https:";
-
       const options: Record<string, any> = {
         key,
         amount,
@@ -886,11 +884,6 @@ export default function Home() {
           color: "#7c3aed",
         },
       };
-
-      if (useCallbackRedirect) {
-        options.callback_url = `${window.location.origin}/api/razorpay-callback`;
-        options.redirect = true;
-      }
 
       const razorpay = new (window as any).Razorpay(options);
       razorpay.open();
