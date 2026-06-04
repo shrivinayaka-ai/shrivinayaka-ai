@@ -161,69 +161,6 @@ const ordinalFromValue = (value: unknown) => {
   return Number.isFinite(numberValue) ? ordinal(numberValue) : "-";
 };
 
-type DashaSummaryField = {
-  label: string;
-  value: string;
-};
-
-const DASHAS_SUMMARY_LABELS = [
-  "Current Mahadasha",
-  "Current Antardasha",
-  "Next Antardasha",
-  "Start Date",
-  "End Date",
-];
-
-const parseDashaSummaryFields = (value: string): DashaSummaryField[] | null => {
-  const cleaned = value.replace(/\*\*/g, "").trim();
-
-  if (!cleaned) {
-    return null;
-  }
-
-  const periodMatch = cleaned.match(
-    /^(?:(Current Mahadasha|Current Antardasha|Next Antardasha):\s*)?(.+?\b(?:Mahadasha|Antardasha))\s*\((\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})\)/i
-  );
-
-  if (periodMatch) {
-    const explicitLabel = periodMatch[1]?.trim();
-    const periodName = periodMatch[2].trim();
-    const label = explicitLabel || (/antardasha/i.test(periodName)
-      ? "Current Antardasha"
-      : "Current Mahadasha");
-
-    return [
-      { label, value: periodName },
-      { label: "Start Date", value: periodMatch[3] },
-      { label: "End Date", value: periodMatch[4] },
-    ];
-  }
-
-  const labelsPattern = DASHAS_SUMMARY_LABELS.join("|");
-  const fieldRegex = new RegExp(
-    `(${labelsPattern}):\\s*([\\s\\S]*?)(?=\\s+(?:${labelsPattern}):|$)`,
-    "gi"
-  );
-  const fields: DashaSummaryField[] = [];
-  let match: RegExpExecArray | null;
-
-  while ((match = fieldRegex.exec(cleaned)) !== null) {
-    const label = DASHAS_SUMMARY_LABELS.find(
-      (item) => item.toLowerCase() === match![1].toLowerCase()
-    );
-    const fieldValue = match[2].trim();
-
-    if (label && fieldValue) {
-      fields.push({
-        label,
-        value: fieldValue,
-      });
-    }
-  }
-
-  return fields.length ? fields : null;
-};
-
 const formatDateForBackend = (date: string) => {
   if (!date) return "";
 
@@ -291,12 +228,6 @@ function NorthIndianChart({
       planets,
     };
   });
-
-  const cleanTransitText = (line: string) =>
-    line
-      .replace(/^\s*[-â€¢•]\s+/, "")
-      .replace(/\*\*/g, "")
-      .trim();
 
   return (
     <div className="flex min-h-[430px] flex-col rounded-xl border border-[#ead8b8] bg-white p-4 shadow-sm">
@@ -1335,11 +1266,9 @@ export default function Home() {
           /antardasha\s+timeline/i.test(heading);
 
         const isDashaEmphasisLine = (value: string) =>
-          Boolean(parseDashaSummaryFields(value)) ||
           /^(Current Mahadasha|Current Antardasha|Next Antardasha|Start Date|End Date):/i.test(
             value
-          ) ||
-          /\b(Mahadasha|Antardasha)\s*\(.+\)/i.test(value);
+          ) || /\b(Mahadasha|Antardasha)\s*\(.+\)/i.test(value);
 
         const nakshatraSummaryMatch = (value: string) =>
           value.match(/^(Moon Sign|Nakshatra|Pada|Nakshatra Lord):\s*(.+)$/i);
@@ -1453,17 +1382,7 @@ export default function Home() {
             }
 
             if (isDashaEmphasisLine(trimmed)) {
-              const dashaFields = parseDashaSummaryFields(trimmed);
-              const content = dashaFields
-                ? dashaFields
-                    .map(
-                      (field) =>
-                        `<p class="dasha-emphasis"><strong>${escapeHtml(
-                          field.label
-                        )}:</strong> <strong>${escapeHtml(field.value)}</strong></p>`
-                    )
-                    .join("")
-                : `<p class="dasha-emphasis"><strong>${escapeHtml(trimmed)}</strong></p>`;
+              const content = `<p class="dasha-emphasis"><strong>${escapeHtml(trimmed)}</strong></p>`;
 
               if (dashaEmphasisBoxOpen) {
                 return content;
@@ -3696,398 +3615,6 @@ export default function Home() {
     return "₹99";
   };
 
-  type BrowserReportChunk = {
-    type: "markdown" | "transit" | "antardashaTimeline";
-    content: string;
-  };
-
-  type BrowserTransitSubsection = {
-    heading: string;
-    paragraphs: string[];
-  };
-
-  type BrowserTransitBlock = {
-    title: string;
-    intro: string[];
-    sections: BrowserTransitSubsection[];
-  };
-
-  const splitBrowserReportChunks = (markdown: string): BrowserReportChunk[] => {
-    const chunks: BrowserReportChunk[] = [];
-    let activeType: BrowserReportChunk["type"] = "markdown";
-    let buffer: string[] = [];
-
-    const pushBuffer = () => {
-      if (!buffer.some((line) => line.trim())) {
-        buffer = [];
-        return;
-      }
-
-      chunks.push({
-        type: activeType,
-        content: buffer.join("\n"),
-      });
-      buffer = [];
-    };
-
-    markdown.split("\n").forEach((line) => {
-      const trimmed = line.trim();
-      const isTransitHeading =
-        /^##\s+(\d+\.\s*)?Current Transit Analysis/i.test(trimmed);
-      const isAntardashaTimelineHeading =
-        /^##\s+(\d+\.\s*)?Antardasha Timeline/i.test(trimmed);
-      const isNextMajorHeading =
-        activeType !== "markdown" &&
-        /^##\s+/.test(trimmed) &&
-        !isTransitHeading &&
-        !isAntardashaTimelineHeading;
-
-      if (isTransitHeading) {
-        pushBuffer();
-        activeType = "transit";
-        buffer = [line];
-        return;
-      }
-
-      if (isAntardashaTimelineHeading) {
-        pushBuffer();
-        activeType = "antardashaTimeline";
-        buffer = [line];
-        return;
-      }
-
-      if (isNextMajorHeading) {
-        pushBuffer();
-        activeType = "markdown";
-        buffer = [line];
-        return;
-      }
-
-      buffer.push(line);
-    });
-
-    pushBuffer();
-    return chunks;
-  };
-
-  const renderBrowserMarkdownChunk = (content: string, key: number) => (
-    <ReactMarkdown
-      key={`markdown-${key}`}
-      components={{
-        h1: ({ children }) => (
-          <h1 className="mb-8 mt-2 border-b border-[#d4a017] pb-4 text-4xl font-bold text-[#5c0000]">
-            {children}
-          </h1>
-        ),
-        h2: ({ children }) => (
-          <h2 className="mb-4 mt-10 text-2xl font-bold text-[#8b0000]">
-            {children}
-          </h2>
-        ),
-        h3: ({ children }) => (
-          <h3 className="mb-3 mt-8 text-xl font-bold text-[#5c0000]">
-            {children}
-          </h3>
-        ),
-        h4: ({ children }) => (
-          <h4 className="mb-3 mt-8 text-xl font-bold text-[#5c0000]">
-            {children}
-          </h4>
-        ),
-        p: ({ children }) => {
-          const text = Array.isArray(children)
-            ? children.join("")
-            : String(children ?? "");
-          const dashaFields = parseDashaSummaryFields(text);
-
-          if (dashaFields) {
-            return (
-              <div className="mb-6 rounded-xl border border-[#ead8b8] bg-white px-5 py-5 text-[#111111]">
-                {dashaFields.map((field) => (
-                  <p
-                    key={`${field.label}-${field.value}`}
-                    className="mb-5 text-base font-extrabold leading-8 last:mb-0"
-                  >
-                    <strong className="font-extrabold">
-                      {field.label}:
-                    </strong>{" "}
-                    <strong className="font-extrabold">
-                      {field.value}
-                    </strong>
-                  </p>
-                ))}
-              </div>
-            );
-          }
-
-          const match = text.match(
-            /^(Moon Sign|Nakshatra|Pada|Nakshatra Lord):\s*(.+)$/i
-          );
-
-          if (match) {
-            return (
-              <div className="mb-3 rounded-xl border border-[#ead8b8] bg-white px-4 py-3 text-lg leading-7 text-[#2b1b12]">
-                <span className="font-extrabold text-[#5c0000]">
-                  {match[1]}:
-                </span>{" "}
-                <span className="font-extrabold">
-                  {match[2]}
-                </span>
-              </div>
-            );
-          }
-
-          return (
-            <p className="mb-5 text-lg leading-8 text-[#3a281f]">
-              {children}
-            </p>
-          );
-        },
-        ul: ({ children }) => (
-          <ul className="mb-5 list-disc space-y-2 pl-6 text-[#3a281f]">
-            {children}
-          </ul>
-        ),
-        li: ({ children }) => (
-          <li className="leading-7">
-            {children}
-          </li>
-        ),
-        strong: ({ children }) => (
-          <strong className="font-bold text-[#5c0000]">
-            {children}
-          </strong>
-        ),
-      }}
-    >
-      {content}
-    </ReactMarkdown>
-  );
-
-  const normalizeTransitHeading = (heading: string) =>
-    heading
-      .replace(/:$/, "")
-      .replace(/^Impact from Ascendent$/i, "Impact from Ascendant")
-      .trim();
-
-  const cleanTransitText = (line: string) =>
-    line
-      .replace(/^\s*[-•]\s+/, "")
-      .replace(/\*\*/g, "")
-      .trim();
-
-  const renderBrowserTransitAnalysis = (content: string, key: number) => {
-    const blocks: BrowserTransitBlock[] = [];
-    let sectionHeading = "Current Transit Analysis";
-    let currentBlock: BrowserTransitBlock | null = null;
-    let currentSubsection: BrowserTransitSubsection | null = null;
-
-    const pushBlock = () => {
-      if (currentBlock) {
-        blocks.push(currentBlock);
-      }
-
-      currentBlock = null;
-      currentSubsection = null;
-    };
-
-    const startBlock = (title: string) => {
-      pushBlock();
-      currentBlock = {
-        title: normalizeTransitHeading(title),
-        intro: [],
-        sections: [],
-      };
-    };
-
-    const startSubsection = (heading: string) => {
-      if (!currentBlock) {
-        currentBlock = {
-          title: "Current Transit",
-          intro: [],
-          sections: [],
-        };
-      }
-
-      const nextSubsection = {
-        heading: normalizeTransitHeading(heading),
-        paragraphs: [],
-      };
-
-      currentBlock.sections.push(nextSubsection);
-      currentSubsection = nextSubsection;
-    };
-
-    const isPlanetTransitHeading = (heading: string) =>
-      /^(Saturn|Jupiter|Rahu|Ketu)\s+in\s+\d+(st|nd|rd|th)\s+House$/i.test(
-        heading
-      );
-
-    const isMoonTransitHeading = (heading: string) =>
-      /^(Saturn|Jupiter|Rahu|Ketu)\s+in\s+\d+(st|nd|rd|th)\s+House\s+from\s+Moon$/i.test(
-        heading
-      );
-
-    content.split("\n").forEach((line) => {
-      const trimmed = line.trim();
-
-      if (!trimmed) return;
-
-      if (/^##\s+/.test(trimmed)) {
-        sectionHeading = trimmed.replace(/^##\s+/, "").trim();
-        return;
-      }
-
-      if (/^###\s+/.test(trimmed)) {
-        const heading = normalizeTransitHeading(trimmed.replace(/^###\s+/, ""));
-
-        if (isPlanetTransitHeading(heading)) {
-          startBlock(heading);
-        } else if (isMoonTransitHeading(heading)) {
-          startSubsection(heading);
-        } else {
-          startSubsection(heading);
-        }
-
-        return;
-      }
-
-      if (/^####\s+/.test(trimmed)) {
-        startSubsection(trimmed.replace(/^####\s+/, ""));
-        return;
-      }
-
-      const paragraph = cleanTransitText(trimmed);
-      if (!paragraph) return;
-
-      if (currentSubsection) {
-        currentSubsection.paragraphs.push(paragraph);
-        return;
-      }
-
-      if (currentBlock) {
-        currentBlock.intro.push(paragraph);
-      }
-    });
-
-    pushBlock();
-
-    return (
-      <section key={`transit-${key}`} className="mt-10">
-        <h2 className="mb-8 text-3xl font-extrabold text-[#8b0000]">
-          {sectionHeading}
-        </h2>
-
-        <div className="space-y-6">
-          {blocks.map((block) => (
-            <article
-              key={block.title}
-              className="rounded-2xl border border-[#d4a017] bg-white p-6 shadow-sm"
-            >
-              <h3 className="mb-5 text-2xl font-extrabold text-[#8b0000]">
-                {block.title}
-              </h3>
-
-              {block.intro.map((paragraph, index) => (
-                <p
-                  key={`${block.title}-intro-${index}`}
-                  className="mb-4 text-lg leading-8 text-[#3a281f]"
-                >
-                  {paragraph}
-                </p>
-              ))}
-
-              <div className="space-y-4">
-                {block.sections.map((section, index) => (
-                  <div
-                    key={`${block.title}-${section.heading}-${index}`}
-                    className="rounded-l-xl border-l-4 border-[#a40000] bg-white px-5 py-4"
-                  >
-                    <h4 className="mb-4 text-xl font-extrabold text-[#8b0000]">
-                      {section.heading}
-                    </h4>
-
-                    {section.paragraphs.map((paragraph, paragraphIndex) => (
-                      <p
-                        key={`${section.heading}-${paragraphIndex}`}
-                        className="mb-4 text-lg leading-8 text-[#3a281f] last:mb-0"
-                      >
-                        {paragraph}
-                      </p>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-    );
-  };
-
-  const renderBrowserAntardashaTimeline = (content: string, key: number) => {
-    const heading =
-      content
-        .split("\n")
-        .find((line) => /^##\s+/.test(line.trim()))
-        ?.trim()
-        .replace(/^##\s+/, "") || "Antardasha Timeline";
-    const timelineRows = report?.antardasha_timeline || [];
-
-    return (
-      <section key={`antardasha-timeline-${key}`} className="mt-10">
-        <h2 className="mb-6 text-3xl font-extrabold text-[#8b0000]">
-          {heading}
-        </h2>
-
-        <div className="overflow-hidden rounded-xl border border-[#ead8b8] bg-white">
-          <table className="w-full border-collapse text-left text-[#111111]">
-            <thead>
-              <tr className="bg-[#a40000] text-white">
-                <th className="px-5 py-4 font-extrabold">
-                  Period
-                </th>
-                <th className="px-5 py-4 font-extrabold">
-                  Start Date
-                </th>
-                <th className="px-5 py-4 font-extrabold">
-                  End Date
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {timelineRows.map((item, index) => (
-                <tr
-                  key={`${item.period}-${item.start}-${item.end}`}
-                  className={index % 2 === 1 ? "bg-[#fff7e8]" : "bg-white"}
-                >
-                  <td className="border-b border-[#ead8b8] px-5 py-4 font-extrabold">
-                    {item.period}
-                  </td>
-                  <td className="border-b border-[#ead8b8] px-5 py-4 font-extrabold">
-                    {item.start}
-                  </td>
-                  <td className="border-b border-[#ead8b8] px-5 py-4 font-extrabold">
-                    {item.end}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    );
-  };
-
-  const renderBrowserReportMarkdown = (markdown: string) =>
-    splitBrowserReportChunks(markdown).map((chunk, index) =>
-      chunk.type === "transit"
-        ? renderBrowserTransitAnalysis(chunk.content, index)
-        : chunk.type === "antardashaTimeline"
-        ? renderBrowserAntardashaTimeline(chunk.content, index)
-        : renderBrowserMarkdownChunk(chunk.content, index)
-    );
-
   return (
     <main className="min-h-screen bg-[#fffaf2] text-[#2b1b12]">
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -4840,9 +4367,74 @@ export default function Home() {
                 </h3>
 
                 <div className="max-w-none text-[#2b1b12]">
-                  {renderBrowserReportMarkdown(
-                    formatReportMarkdown(report.report)
-                  )}
+                  <ReactMarkdown
+                    components={{
+                      h1: ({ children }) => (
+                        <h1 className="mb-8 mt-2 border-b border-[#d4a017] pb-4 text-4xl font-bold text-[#5c0000]">
+                          {children}
+                        </h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className="mb-4 mt-10 text-2xl font-bold text-[#8b0000]">
+                          {children}
+                        </h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className="mb-3 mt-8 text-xl font-bold text-[#5c0000]">
+                          {children}
+                        </h3>
+                      ),
+                      h4: ({ children }) => (
+                        <h4 className="mb-3 mt-8 text-xl font-bold text-[#5c0000]">
+                          {children}
+                        </h4>
+                      ),
+                      p: ({ children }) => {
+                        const text = Array.isArray(children)
+                          ? children.join("")
+                          : String(children ?? "");
+                        const match = text.match(
+                          /^(Moon Sign|Nakshatra|Pada|Nakshatra Lord):\s*(.+)$/i
+                        );
+
+                        if (match) {
+                          return (
+                            <div className="mb-3 rounded-xl border border-[#ead8b8] bg-white px-4 py-3 text-lg leading-7 text-[#2b1b12]">
+                              <span className="font-extrabold text-[#5c0000]">
+                                {match[1]}:
+                              </span>{" "}
+                              <span className="font-extrabold">
+                                {match[2]}
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <p className="mb-5 text-lg leading-8 text-[#3a281f]">
+                            {children}
+                          </p>
+                        );
+                      },
+                      ul: ({ children }) => (
+                        <ul className="mb-5 list-disc space-y-2 pl-6 text-[#3a281f]">
+                          {children}
+                        </ul>
+                      ),
+                      li: ({ children }) => (
+                        <li className="leading-7">
+                          {children}
+                        </li>
+                      ),
+                      strong: ({ children }) => (
+                        <strong className="font-bold text-[#5c0000]">
+                          {children}
+                        </strong>
+                      ),
+                    }}
+                  >
+                    {formatReportMarkdown(report.report)}
+                  </ReactMarkdown>
                 </div>
               </div>
 
