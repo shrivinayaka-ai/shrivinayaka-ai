@@ -39,95 +39,6 @@ def validate_dasha_mentions(report, expected_planet):
     return wrong_planets
 
 
-ENGLISH_HEADING_REPLACEMENTS = {
-    "आपके प्रश्न का सीधा उत्तर": "Direct Answer to Your Question",
-    "आपका प्रश्न": "Your Question",
-    "संक्षिप्त उत्तर": "Short Answer",
-    "सीधा उत्तर": "Direct Answer",
-    "कुंडली क्या संकेत देती है": "What the Chart Indicates",
-    "संभावित समय अवधि": "Time Period",
-    "व्यावहारिक सलाह": "Practical Advice",
-    "अंतिम निष्कर्ष": "Final Observation",
-    "Aapke Sawal Ka Seedha Jawaab": "Direct Answer to Your Question",
-    "Aapka Sawal": "Your Question",
-    "Seedha Jawaab": "Direct Answer",
-    "Kundli Kya Sanket Deti Hai": "What the Chart Indicates",
-    "Sambhavit Samay Avadhi": "Time Period",
-    "Vyavaharik Salah": "Practical Advice",
-}
-
-
-def normalize_english_headings(report):
-    lines = []
-
-    for line in report.splitlines():
-        original = line
-        stripped = line.strip()
-        prefix_match = re.match(r"^(#{1,4}\s*)", stripped)
-        prefix = prefix_match.group(1) if prefix_match else ""
-        heading_text = stripped[len(prefix):].strip().rstrip(":")
-
-        replacement = ENGLISH_HEADING_REPLACEMENTS.get(heading_text)
-
-        if replacement:
-            indentation = original[: len(original) - len(original.lstrip())]
-            lines.append(f"{indentation}{prefix}{replacement}")
-        else:
-            lines.append(original)
-
-    return "\n".join(lines)
-
-
-def has_language_leak_in_english(report):
-    if re.search(r"[\u0900-\u097F]", report):
-        return True
-
-    roman_hindi_heading_patterns = [
-        r"\bAapke?\s+Sawal\b",
-        r"\bSeedha\s+Jawaab\b",
-        r"\bKundli\s+Kya\b",
-        r"\bVyavaharik\s+Salah\b",
-        r"\bSambhavit\s+Samay\b",
-    ]
-
-    return any(
-        re.search(pattern, report, re.IGNORECASE)
-        for pattern in roman_hindi_heading_patterns
-    )
-
-
-def enforce_english_report_language(report, current_dasha):
-    report = normalize_english_headings(report)
-
-    if not has_language_leak_in_english(report):
-        return report
-
-    response = client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Rewrite the report entirely in simple natural English. "
-                    "Do not use Hindi, Hinglish, Roman Hindi, or Devanagari anywhere. "
-                    "Keep markdown structure, headings, astrology meaning, dates, planets, "
-                    "Mahadasha and Antardasha details unchanged. "
-                    f"The only allowed Mahadasha is {current_dasha['planet']} Mahadasha. "
-                    "For the Direct Answer section use only these English subheadings: "
-                    "Your Question, Short Answer, What the Chart Indicates, Time Period, "
-                    "Practical Advice, Final Observation."
-                )
-            },
-            {
-                "role": "user",
-                "content": report
-            }
-        ]
-    )
-
-    return normalize_english_headings(response.choices[0].message.content)
-
-
 def translate_question_for_report(question, language):
     if not question or language != "hindi":
         return question
@@ -727,13 +638,6 @@ Do not change the given current Mahadasha.
 ## 13. Next Antardasha Preview
 Use the provided next_antardasha inside Current Dasha and Antardasha Details.
 
-Important:
-The next Antardasha may belong to the same Mahadasha or a new Mahadasha.
-If next_antardasha includes a different Mahadasha, clearly mention the full period as:
-Next Mahadasha/Antardasha:
-Start Date:
-End Date:
-
 Mandatory:
 Show the next period exactly:
 
@@ -743,7 +647,6 @@ End Date:
 
 Explain:
 - which Antardasha comes next
-- whether the Mahadasha also changes
 - likely shift in focus
 - what may improve
 - what may become more demanding
@@ -1333,25 +1236,6 @@ Write the entire report in simple natural English.
 
 Keep all markdown headings and section titles in English exactly as given in the report format.
 
-Do not use Hindi, Hinglish, Roman Hindi, or Devanagari script anywhere in an English report.
-
-Do not use headings such as:
-- आपका प्रश्न
-- संक्षिप्त उत्तर
-- कुंडली क्या संकेत देती है
-- संभावित समय अवधि
-- व्यावहारिक सलाह
-- Aapke Sawal Ka Seedha Jawaab
-
-For Direct Answer sections in English, use only these English headings:
-- Direct Answer to Your Question
-- Your Question
-- Short Answer
-- What the Chart Indicates
-- Time Period
-- Practical Advice
-- Final Observation
-
 Avoid complicated words.
 
 Write like an astrologer speaking to an intelligent friend.
@@ -1538,9 +1422,6 @@ Next Antardasha:
 Start Date:
 End Date:
 
-If the next Antardasha belongs to a different Mahadasha, show and explain that Mahadasha change clearly.
-Never write "Next Antardasha: None" when next_antardasha data is provided.
-
 4. Add an "Antardasha Timeline" table:
 Period | Start Date | End Date
 
@@ -1579,17 +1460,6 @@ Language Instructions:
 
 Strictly follow the selected report language. Do not switch to English unless Report Language is english.
 Keep all report headings in English for every language.
-
-If Report Language is english:
-- Write every heading, subheading, label and paragraph in English only.
-- Do not use Hindi words, Hinglish words, Roman Hindi, or Devanagari script anywhere.
-- The Direct Answer section must use English subheadings only:
-  Your Question
-  Short Answer
-  What the Chart Indicates
-  Time Period
-  Practical Advice
-  Final Observation
 
 User Current Life Context:
 {user_context}
@@ -1711,8 +1581,5 @@ No guaranteed claims.
                 "AI response mentioned incorrect Mahadasha: "
                 + ", ".join(wrong_planets)
             )
-
-    if language == "english":
-        report = enforce_english_report_language(report, current_dasha)
 
     return report
