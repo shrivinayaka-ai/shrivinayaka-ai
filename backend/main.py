@@ -261,7 +261,7 @@ def calculate_vimshottari_dasha(birth_date, moon_longitude):
     current_start = birth_dt
     first = True
 
-    for i in range(9):
+    for i in range(18):
         planet = DASHA_SEQUENCE[(start_index + i) % 9]
 
         if first:
@@ -315,32 +315,47 @@ def calculate_antardashas(mahadasha_planet, md_start, md_years):
 
 def get_current_and_next_antardasha(dashas):
     today = datetime.today()
+    timeline = []
 
     for dasha in dashas:
-        md_start = datetime.strptime(dasha["start"], "%Y-%m-%d")
-        md_end = datetime.strptime(dasha["end"], "%Y-%m-%d")
+        for ad in dasha["antardashas"]:
+            timeline.append({
+                "mahadasha": dasha["mahadasha"],
+                "mahadasha_start": dasha["start"],
+                "mahadasha_end": dasha["end"],
+                "antardasha": ad["antardasha"],
+                "start": ad["start"],
+                "end": ad["end"],
+            })
 
-        if md_start <= today <= md_end:
-            antardashas = dasha["antardashas"]
+    for index, ad in enumerate(timeline):
+        ad_start = datetime.strptime(ad["start"], "%Y-%m-%d")
+        ad_end = datetime.strptime(ad["end"], "%Y-%m-%d")
 
-            for index, ad in enumerate(antardashas):
-                ad_start = datetime.strptime(ad["start"], "%Y-%m-%d")
-                ad_end = datetime.strptime(ad["end"], "%Y-%m-%d")
+        if ad_start <= today <= ad_end:
+            next_ad = timeline[index + 1] if index + 1 < len(timeline) else None
 
-                if ad_start <= today <= ad_end:
-                    next_ad = (
-                        antardashas[index + 1]
-                        if index + 1 < len(antardashas)
-                        else None
-                    )
-
-                    return {
-                        "current_mahadasha": dasha["mahadasha"],
-                        "mahadasha_start": dasha["start"],
-                        "mahadasha_end": dasha["end"],
-                        "current_antardasha": ad,
-                        "next_antardasha": next_ad,
+            return {
+                "current_mahadasha": ad["mahadasha"],
+                "mahadasha_start": ad["mahadasha_start"],
+                "mahadasha_end": ad["mahadasha_end"],
+                "current_antardasha": {
+                    "antardasha": ad["antardasha"],
+                    "mahadasha": ad["mahadasha"],
+                    "start": ad["start"],
+                    "end": ad["end"],
+                },
+                "next_antardasha": (
+                    {
+                        "antardasha": next_ad["antardasha"],
+                        "mahadasha": next_ad["mahadasha"],
+                        "start": next_ad["start"],
+                        "end": next_ad["end"],
                     }
+                    if next_ad
+                    else None
+                ),
+            }
 
     return None
 
@@ -350,24 +365,27 @@ def get_antardasha_timeline(dashas, limit=5):
     timeline = []
 
     for dasha in dashas:
-        md_start = datetime.strptime(dasha["start"], "%Y-%m-%d")
-        md_end = datetime.strptime(dasha["end"], "%Y-%m-%d")
+        for ad in dasha["antardashas"]:
+            timeline.append({
+                "period": f'{dasha["mahadasha"]}/{ad["antardasha"]}',
+                "start": ad["start"],
+                "end": ad["end"],
+            })
 
-        if md_start <= today <= md_end:
-            for ad in dasha["antardashas"]:
-                ad_end = datetime.strptime(ad["end"], "%Y-%m-%d")
+    for index, item in enumerate(timeline):
+        ad_start = datetime.strptime(item["start"], "%Y-%m-%d")
+        ad_end = datetime.strptime(item["end"], "%Y-%m-%d")
 
-                if ad_end >= today:
-                    timeline.append({
-                        "period": f'{dasha["mahadasha"]}/{ad["antardasha"]}',
-                        "start": ad["start"],
-                        "end": ad["end"],
-                    })
+        if ad_start <= today <= ad_end:
+            return timeline[index:index + limit]
 
-                if len(timeline) >= limit:
-                    return timeline
+    future_timeline = [
+        item
+        for item in timeline
+        if datetime.strptime(item["end"], "%Y-%m-%d") >= today
+    ]
 
-    return timeline
+    return future_timeline[:limit]
 
 
 def add_dasha_enrichment(chart_data, birth_date):
