@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 from backend.openai_client import client
 
@@ -15,6 +15,20 @@ PLANETS = [
     "Mercury"
 ]
 
+DASHA_ORDER = ["Ketu", "Venus", "Sun", "Moon", "Mars", "Rahu", "Jupiter", "Saturn", "Mercury"]
+
+DASHA_YEARS = {
+    "Ketu": 7,
+    "Venus": 20,
+    "Sun": 6,
+    "Moon": 10,
+    "Mars": 7,
+    "Rahu": 18,
+    "Jupiter": 16,
+    "Saturn": 19,
+    "Mercury": 17,
+}
+
 
 def get_current_dasha(dasha_data):
     today = datetime.today().date()
@@ -29,6 +43,190 @@ def get_current_dasha(dasha_data):
     return None
 
 
+def get_next_mahadasha_first_antardasha(dasha_data, current_dasha):
+    if not current_dasha:
+        return None
+
+    timeline = dasha_data.get("timeline", [])
+
+    for i, period in enumerate(timeline):
+        if (
+            period.get("planet") == current_dasha.get("planet")
+            and period.get("start") == current_dasha.get("start")
+            and period.get("end") == current_dasha.get("end")
+        ):
+            if i + 1 < len(timeline):
+                next_md = timeline[i + 1]
+
+                return {
+                    "mahadasha": next_md["planet"],
+                    "antardasha": next_md["planet"],
+                    "start": next_md["start"],
+                    "end": next_md["end"],
+                    "note": f"First Antardasha of next Mahadasha: {next_md['planet']} / {next_md['planet']}"
+                }
+
+    return None
+
+
+def get_next_mahadasa_lord(current_lord):
+    i = DASHA_ORDER.index(current_lord)
+    return DASHA_ORDER[(i + 1) % len(DASHA_ORDER)]
+
+
+def build_antardashas_for_mahadasha(md_lord, md_start, md_end):
+    if not md_lord or not md_start or not md_end:
+        return []
+
+    md_start_dt = datetime.strptime(md_start, "%Y-%m-%d")
+    md_end_dt = datetime.strptime(md_end, "%Y-%m-%d")
+
+    total_days = (md_end_dt - md_start_dt).days
+    start_index = DASHA_ORDER.index(md_lord)
+
+    rows = []
+    current_start = md_start_dt
+
+    for offset in range(9):
+        ad_lord = DASHA_ORDER[(start_index + offset) % 9]
+        ad_days = round(total_days * DASHA_YEARS[ad_lord] / 120)
+        current_end = current_start + timedelta(days=ad_days)
+
+        if current_end > md_end_dt or offset == 8:
+            current_end = md_end_dt
+
+        rows.append({
+            "period": f"{md_lord}/{ad_lord}",
+            "start": current_start.strftime("%Y-%m-%d"),
+            "end": current_end.strftime("%Y-%m-%d"),
+        })
+
+        current_start = current_end
+
+    return rows
+
+
+def extract_antardasha_rows_from_mahadasha(md_entry):
+    md_planet = md_entry.get("mahadasha") or md_entry.get("planet")
+    antardashas = md_entry.get("antardashas") or md_entry.get("antar_dashas") or []
+
+    rows = []
+    for ad in antardashas:
+        ad_planet = ad.get("antardasha") or ad.get("planet")
+        start = ad.get("start")
+        end = ad.get("end")
+
+        if md_planet and ad_planet and start and end:
+            rows.append({
+                "period": f"{md_planet}/{ad_planet}",
+                "start": start,
+                "end": end,
+            })
+
+    return rows
+
+
+def get_upcoming_antardasha_rows(chart_data, current_dasha=None, limit=6):
+    current_details = chart_data.get("current_dasha_details") or {}
+    current_md = (
+        chart_data.get("current_mahadasha_planet")
+        or current_details.get("current_mahadasha")
+        or (current_dasha or {}).get("planet")
+    )
+    md_start = (
+        chart_data.get("current_mahadasha_start")
+        or current_details.get("mahadasha_start")
+        or (current_dasha or {}).get("start")
+    )
+    md_end = (
+        chart_data.get("current_mahadasha_end")
+        or current_details.get("mahadasha_end")
+        or (current_dasha or {}).get("end")
+    )
+    current_ad = current_details.get("current_antardasha")
+
+    rows = []
+    full_dashas = chart_data.get("dashas") or []
+
+    current_md_entry = None
+    for md in full_dashas:
+        md_planet = md.get("mahadasha") or md.get("planet")
+        if md_planet == current_md and md.get("start") == md_start:
+            current_md_entry = md
+            break
+
+    current_md_rows = (
+        extract_antardasha_rows_from_mahadasha(current_md_entry)
+        if current_md_entry
+        else []
+    )
+
+    if not current_md_rows:
+        current_md_rows = build_antardashas_for_mahadasha(current_md, md_start, md_end)
+
+    if current_ad:
+        current_start = current_ad.get("start")
+        current_end = current_ad.get("end")
+        current_ad_planet = current_ad.get("antardasha") or current_ad.get("planet")
+        found = False
+
+        for row in current_md_rows:
+            row_ad_planet = row["period"].split("/", 1)[1] if "/" in row["period"] else None
+
+            if (
+                row["start"] == current_start
+                or (current_end and row["end"] == current_end)
+                or (current_ad_planet and row_ad_planet == current_ad_planet)
+            ):
+                found = True
+
+            if found:
+                rows.append(row)
+    else:
+        rows = current_md_rows[:]
+
+    if len(rows) < limit:
+        next_md = None
+        for i, md in enumerate(full_dashas):
+            md_planet = md.get("mahadasha") or md.get("planet")
+            if md_planet == current_md and md.get("start") == md_start:
+                if i + 1 < len(full_dashas):
+                    next_md = full_dashas[i + 1]
+                break
+
+        while next_md and len(rows) < limit:
+            next_rows = extract_antardasha_rows_from_mahadasha(next_md)
+            if not next_rows:
+                next_rows = build_antardashas_for_mahadasha(
+                    next_md.get("mahadasha") or next_md.get("planet"),
+                    next_md.get("start"),
+                    next_md.get("end")
+                )
+
+            for row in next_rows:
+                if row not in rows:
+                    rows.append(row)
+                if len(rows) >= limit:
+                    break
+
+            if len(rows) >= limit:
+                break
+
+            following_md = None
+            for i, md in enumerate(full_dashas):
+                md_planet = md.get("mahadasha") or md.get("planet")
+                if (
+                    md_planet == (next_md.get("mahadasha") or next_md.get("planet"))
+                    and md.get("start") == next_md.get("start")
+                ):
+                    if i + 1 < len(full_dashas):
+                        following_md = full_dashas[i + 1]
+                    break
+            next_md = following_md
+
+    return rows[:limit]
+
+
 def validate_dasha_mentions(report, expected_planet):
     wrong_planets = [
         planet for planet in PLANETS
@@ -39,27 +237,277 @@ def validate_dasha_mentions(report, expected_planet):
     return wrong_planets
 
 
+def contains_devanagari(text):
+    return bool(text and re.search(r"[\u0900-\u097F]", text))
+
+
+def normalize_heading_key(text):
+    return re.sub(r"\s+", " ", text.strip().strip(":")).casefold()
+
+
+ENGLISH_HEADING_REPLACEMENTS = {
+    normalize_heading_key("आपके प्रश्न का सीधा उत्तर"): "Direct Answer to Your Question",
+    normalize_heading_key("आपका प्रश्न"): "Your Question",
+    normalize_heading_key("आपका सवाल"): "Your Question",
+    normalize_heading_key("प्रश्न"): "Your Question",
+    normalize_heading_key("संक्षिप्त उत्तर"): "Brief Answer",
+    normalize_heading_key("सीधा उत्तर"): "Brief Answer",
+    normalize_heading_key("कुंडली क्या संकेत देती है"): "What the Chart Indicates",
+    normalize_heading_key("कुंडली क्या बताती है"): "What the Chart Indicates",
+    normalize_heading_key("संभावित समय अवधि"): "Possible Time Period",
+    normalize_heading_key("समय अवधि"): "Possible Time Period",
+    normalize_heading_key("व्यावहारिक सलाह"): "Practical Advice",
+    normalize_heading_key("अंतिम निष्कर्ष"): "Final Observation",
+    normalize_heading_key("Aapke Sawal Ka Seedha Jawaab"): "Direct Answer to Your Question",
+    normalize_heading_key("Aapka Prashn"): "Your Question",
+    normalize_heading_key("Aapka Sawal"): "Your Question",
+    normalize_heading_key("Sankshipt Uttar"): "Brief Answer",
+    normalize_heading_key("Seedha Uttar"): "Brief Answer",
+    normalize_heading_key("Short Answer"): "Brief Answer",
+    normalize_heading_key("Kundli Kya Sanket Deti Hai"): "What the Chart Indicates",
+    normalize_heading_key("Sambhavit Samay Avadhi"): "Possible Time Period",
+    normalize_heading_key("Sambhavit Samay"): "Possible Time Period",
+    normalize_heading_key("Vyavaharik Salah"): "Practical Advice",
+    normalize_heading_key("Antim Nishkarsh"): "Final Observation",
+}
+
+
+def normalize_english_report_text(report):
+    normalized_lines = []
+
+    for line in (report or "").splitlines():
+        stripped = line.strip()
+        heading_match = re.match(r"^(#{1,6})\s*(.+?)\s*$", stripped)
+
+        if heading_match:
+            marks = heading_match.group(1)
+            heading = heading_match.group(2)
+            replacement = ENGLISH_HEADING_REPLACEMENTS.get(
+                normalize_heading_key(heading)
+            )
+
+            if replacement:
+                normalized_lines.append(f"{marks} {replacement}")
+                continue
+
+        replacement = ENGLISH_HEADING_REPLACEMENTS.get(
+            normalize_heading_key(stripped)
+        )
+
+        if replacement:
+            indent = line[:len(line) - len(line.lstrip())]
+            normalized_lines.append(f"{indent}{replacement}")
+            continue
+
+        normalized_lines.append(line)
+
+    return "\n".join(normalized_lines)
+
+
+def fix_report_markdown_structure(report):
+    if not report:
+        return report
+
+    main_headings = [
+        "Core Personality & Life Pattern",
+        "Moon Sign, Nakshatra and Pada Analysis",
+        "Deep Personality Breakdown from Nakshatra",
+        "Emotional Nature and Mental Pattern",
+        "Core Karmic Challenges",
+        "Career, Work & Success Path",
+        "Money & Financial Stability",
+        "Relationship, Marriage & Emotional Compatibility",
+        "Health & Mental Wellbeing",
+        "Current Transit Analysis",
+        "Detailed Current Mahadasha Analysis",
+        "Current Antardasha Meaning",
+        "Next Antardasha Preview",
+        "Antardasha Timeline",
+        "Next 3 Years Roadmap",
+        "Practical Remedies & Alignment Advice",
+        "Direct Answer to Your Question",
+    ]
+
+    sub_headings = [
+        "Brief Chart Summary",
+        "Factors Relevant To Question",
+        "Factors Relevant to Question",
+        "Current Dasha Impact",
+        "Current Mahadasha",
+        "Ketu Mahadasha",
+        "Current Transit Impact",
+        "Saturn Impact",
+        "Jupiter Impact",
+        "Rahu Impact",
+        "Ketu Impact",
+        "Your Question",
+        "Brief Answer",
+        "What the Chart Indicates",
+        "Possible Time Period",
+        "Possible Timeframe",
+        "Practical Advice",
+        "Practical steps",
+        "Overall Assessment",
+    ]
+    main_heading_map = {
+        heading: index for index, heading in enumerate(main_headings, start=1)
+    }
+    sub_heading_map = {heading: heading for heading in sub_headings}
+    sub_heading_map["Factors Relevant to Question"] = "Factors Relevant To Question"
+    sub_heading_map["Possible Timeframe"] = "Possible Time Period"
+    sub_heading_map["Practical steps"] = "Practical Advice"
+
+    rebuilt_lines = []
+
+    for raw_line in report.splitlines():
+        stripped = raw_line.strip()
+
+        if not stripped:
+            rebuilt_lines.append(raw_line)
+            continue
+
+        if stripped in (
+            "PART 1 - Complete Astrology Report",
+            "PART 2 - Personal Consultation Analysis",
+        ):
+            rebuilt_lines.extend(["", f"# {stripped}", ""])
+            continue
+
+        if stripped == "## 19. Final Observation":
+            rebuilt_lines.append("## Final Observation")
+            continue
+
+        if stripped.startswith("#"):
+            rebuilt_lines.append(raw_line)
+            continue
+
+        matched_main = False
+        for heading, number in main_heading_map.items():
+            numbered_prefix = f"{number}. {heading}"
+
+            if stripped == heading:
+                rebuilt_lines.extend([f"## {number}. {heading}", ""])
+                matched_main = True
+                break
+
+            if stripped.startswith(numbered_prefix):
+                rest = stripped[len(numbered_prefix):].strip()
+                rebuilt_lines.append(f"## {number}. {heading}")
+                if rest:
+                    rebuilt_lines.extend(["", rest])
+                else:
+                    rebuilt_lines.append("")
+                matched_main = True
+                break
+
+            if stripped.startswith(f"{heading} "):
+                rest = stripped[len(heading):].strip()
+                rebuilt_lines.append(f"## {number}. {heading}")
+                rebuilt_lines.extend(["", rest] if rest else [""])
+                matched_main = True
+                break
+
+        if matched_main:
+            continue
+
+        if stripped == "Final Observation":
+            rebuilt_lines.extend(["## Final Observation", ""])
+            continue
+
+        if stripped.startswith("Final Observation:"):
+            rest = stripped[len("Final Observation:"):].strip()
+            rebuilt_lines.append("## Final Observation")
+            rebuilt_lines.extend(["", rest] if rest else [""])
+            continue
+
+        matched_sub = False
+        for heading, clean_heading in sub_heading_map.items():
+            if stripped == heading:
+                rebuilt_lines.extend([f"### {clean_heading}", ""])
+                matched_sub = True
+                break
+
+            if stripped.startswith(f"{heading}:"):
+                rest = stripped[len(f"{heading}:"):].strip()
+                rebuilt_lines.append(f"### {clean_heading}")
+                rebuilt_lines.extend(["", rest] if rest else [""])
+                matched_sub = True
+                break
+
+            if stripped.startswith(f"{heading} "):
+                rest = stripped[len(heading):].strip()
+                rebuilt_lines.append(f"### {clean_heading}")
+                rebuilt_lines.extend(["", rest] if rest else [""])
+                matched_sub = True
+                break
+
+        if matched_sub:
+            continue
+
+        rebuilt_lines.append(raw_line)
+
+    return "\n".join(rebuilt_lines)
+
+
+def enforce_english_report_language(report):
+    print("ENGLISH REPORT NORMALIZATION STARTING")
+    report = normalize_english_report_text(report)
+    print("ENGLISH REPORT NORMALIZATION COMPLETE")
+    print("ENGLISH REPORT MARKDOWN FIX STARTING")
+    report = fix_report_markdown_structure(report)
+    print("ENGLISH REPORT MARKDOWN FIX COMPLETE")
+    print("ENGLISH DEVANAGARI CHECK STARTING")
+
+    if not contains_devanagari(report):
+        print("ENGLISH DEVANAGARI CHECK COMPLETE - CLEAN")
+        return report
+    print("ENGLISH DEVANAGARI CHECK COMPLETE - STILL PRESENT")
+    print("ENGLISH REPORT STILL CONTAINS DEVANAGARI AFTER LOCAL NORMALIZATION")
+    print("SKIPPING SECOND OPENAI ENGLISH CLEANUP TO AVOID REPORT GENERATION STALL")
+    return report
+
+
 def translate_question_for_report(question, language):
-    if not question or language != "hindi":
+    if not question:
         return question
 
-    response = client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Translate the user's question into simple spoken Hindi. "
-                    "Return only the Hindi translation in Devanagari script. "
-                    "Do not add explanation."
-                )
-            },
-            {
-                "role": "user",
-                "content": f"Question:\n{question}"
-            }
-        ]
-    )
+    language = language.lower().strip()
+
+    if language not in ("english", "hindi"):
+        return question
+
+    if language == "english":
+        system_prompt = (
+            "Rewrite or translate the user's question into simple natural English. "
+            "Return only the cleaned question. "
+            "Do not use Hindi, Hinglish, or Devanagari script."
+        )
+    else:
+        system_prompt = (
+            "Translate the user's question into simple spoken Hindi. "
+            "Return only the Hindi translation in Devanagari script. "
+            "Do not add explanation."
+        )
+
+    try:
+        print("OPENAI QUESTION TRANSLATION REQUEST STARTING")
+        response = client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": f"Question:\n{question}"
+                }
+            ]
+        )
+        print("OPENAI QUESTION TRANSLATION REQUEST COMPLETE")
+    except Exception as e:
+        print("OPENAI QUESTION TRANSLATION REQUEST FAILED:", str(e))
+        raise
 
     return response.choices[0].message.content.strip()
 
@@ -88,6 +536,15 @@ def generate_full_prediction(
         }
 
     current_dasha = get_current_dasha(chart_data["dasha"])
+    upcoming_antardasha_rows = get_upcoming_antardasha_rows(
+        chart_data,
+        current_dasha,
+        limit=6
+    )
+    next_md_first_antardasha = get_next_mahadasha_first_antardasha(
+        chart_data["dasha"],
+        current_dasha
+    )
 
     if current_dasha is None:
         raise ValueError("No current Mahadasha found in dasha timeline.")
@@ -106,6 +563,8 @@ def generate_full_prediction(
         "nakshatra_summary_card": chart_data.get("nakshatra_summary_card"),
         "current_dasha": chart_data.get("current_dasha"),
         "current_dasha_details": chart_data.get("current_dasha_details"),
+        "next_mahadasha_first_antardasha": next_md_first_antardasha,
+        "upcoming_antardasha_rows": upcoming_antardasha_rows,
         "antardasha_timeline": chart_data.get("antardasha_timeline"),
         "dashas": chart_data.get("dashas"),
         "transits": chart_data.get("transits"),
@@ -317,6 +776,72 @@ Direct Answer
 Overall Assessment
 
 Write the question and answer body in Hindi.
+
+FINAL OVERRIDE FOR DIRECT ANSWER SECTION:
+Ignore any older Direct Answer heading examples above if they conflict with this rule.
+
+If the user has asked a specific question, create the section title and sub-headings based on Report Language.
+
+For English report, use exactly:
+
+### Direct Answer to Your Question
+
+### Your Question
+
+### Brief Answer
+
+### What the Chart Indicates
+
+### Possible Time Period
+
+### Practical Advice
+
+For Hindi report, use exactly:
+
+### आपके प्रश्न का सीधा उत्तर
+
+### आपका प्रश्न
+
+### संक्षिप्त उत्तर
+
+### कुंडली क्या संकेत देती है
+
+### संभावित समय अवधि
+
+### व्यावहारिक सलाह
+
+For Hinglish report, use exactly:
+
+### Aapke Sawal Ka Seedha Jawaab
+
+### Aapka Sawal
+
+### Short Answer
+
+### Kundli Kya Sanket Deti Hai
+
+### Sambhavit Samay
+
+### Practical Advice
+
+Do not mix languages in headings.
+
+If report language is English, all headings and body text must be in English.
+
+If report language is Hindi, headings and body text must be in simple Hindi.
+
+If report language is Hinglish, headings should be Hinglish and body should be easy Hinglish.
+
+Do not use numbering.
+
+Do not write:
+1)
+2)
+3)
+
+Under "Your Question", rewrite and repeat the user's question in a clean, professional way.
+
+Do not copy the user's raw question word-for-word if it sounds informal, emotional, unstructured or grammatically rough.
 
 ## Time Period
 Give realistic timing tendencies if applicable.
@@ -636,32 +1161,31 @@ Do not call the Antardasha planet the Mahadasha planet.
 Do not change the given current Mahadasha.
 
 ## 13. Next Antardasha Preview
-Use the provided next_antardasha inside Current Dasha and Antardasha Details.
+Use this upcoming Antardasha data:
 
-Mandatory:
-Show the next period exactly:
+{upcoming_antardasha_rows}
 
-Next Antardasha:
-Start Date:
-End Date:
-
-Explain:
-- which Antardasha comes next
-- likely shift in focus
-- what may improve
-- what may become more demanding
-- how to prepare before it starts
-
-Do not make fixed guarantees.
+Rules:
+- If the current Mahadasha is ending and current Antardasha is the last one, preview the first Antardasha of the next Mahadasha.
+- Example: after Ketu/Mercury, show Venus/Venus if Venus Mahadasha starts next.
+- Do not write N/A if upcoming Antardasha data is available.
+- Explain the next Antardasha result for career, money, relationships and emotional state.
+- Keep it practical and non-fear based.
 
 ## 14. Antardasha Timeline
-Use the provided Antardasha Timeline.
+Use this exact upcoming Antardasha timeline:
 
-Add a table exactly like:
+{upcoming_antardasha_rows}
+
+Create a table:
 
 Period | Start Date | End Date
 
-Then explain the timing pattern in simple practical language.
+Rules:
+- Show 5-6 upcoming rows if available.
+- Include current Antardasha first.
+- Continue into next Mahadasha Antardashas.
+- Do not stop at only one row.
 
 ## 15. Next 3 Years Roadmap
 Create a practical timeline for the next 3 years.
@@ -727,18 +1251,28 @@ End with:
 At the end, always write "Final Observation" as a main heading, not plain text.
 
 ## 18. Direct Answer Section
-If the user has asked a specific question, create the section title based on Report Language:
+If the user has asked a specific question, create this section.
 
-English:
+VERY IMPORTANT:
+Use headings according to the selected report language only.
+
+If language is English, use exactly:
+
 ### Direct Answer to Your Question
 
-Hindi:
+### Your Question
+
+### Brief Answer
+
+### What the Chart Indicates
+
+### Possible Time Period
+
+### Practical Advice
+
+If language is Hindi, use exactly:
+
 ### आपके प्रश्न का सीधा उत्तर
-
-Hinglish:
-### Aapke Sawal Ka Seedha Jawaab
-
-Create the following sub-headings:
 
 ### आपका प्रश्न
 
@@ -749,6 +1283,30 @@ Create the following sub-headings:
 ### संभावित समय अवधि
 
 ### व्यावहारिक सलाह
+
+If language is Hinglish, use exactly:
+
+### Aapke Sawal Ka Seedha Jawaab
+
+### Aapka Sawal
+
+### Short Answer
+
+### Kundli Kya Sanket Deti Hai
+
+### Sambhavit Samay
+
+### Practical Advice
+
+Rules:
+- Do not mix heading languages.
+- For English report, all headings and body text must be English only.
+- For Hindi report, headings and body text must be Hindi only.
+- For Hinglish report, use Hinglish headings and Hinglish body.
+- Do not use Hindi headings in English reports.
+- Do not use Devanagari in English reports.
+- Rewrite the user's question clearly under the question heading.
+- Keep answer practical, direct and concise.
 
 Do not use numbering.
 
@@ -831,6 +1389,72 @@ Hindi example:
 
 Keep this section concise and direct.
 
+FINAL OVERRIDE FOR DIRECT ANSWER SECTION:
+Ignore any older Direct Answer heading examples above if they conflict with this rule.
+
+If the user has asked a specific question, create the section title and sub-headings based on Report Language.
+
+For English report, use exactly:
+
+### Direct Answer to Your Question
+
+### Your Question
+
+### Brief Answer
+
+### What the Chart Indicates
+
+### Possible Time Period
+
+### Practical Advice
+
+For Hindi report, use exactly:
+
+### आपके प्रश्न का सीधा उत्तर
+
+### आपका प्रश्न
+
+### संक्षिप्त उत्तर
+
+### कुंडली क्या संकेत देती है
+
+### संभावित समय अवधि
+
+### व्यावहारिक सलाह
+
+For Hinglish report, use exactly:
+
+### Aapke Sawal Ka Seedha Jawaab
+
+### Aapka Sawal
+
+### Short Answer
+
+### Kundli Kya Sanket Deti Hai
+
+### Sambhavit Samay
+
+### Practical Advice
+
+Do not mix languages in headings.
+
+If report language is English, all headings and body text must be in English.
+
+If report language is Hindi, headings and body text must be in simple Hindi.
+
+If report language is Hinglish, headings should be Hinglish and body should be easy Hinglish.
+
+Do not use numbering.
+
+Do not write:
+1)
+2)
+3)
+
+Under "Your Question", rewrite and repeat the user's question in a clean, professional way.
+
+Do not copy the user's raw question word-for-word if it sounds informal, emotional, unstructured or grammatically rough.
+
 WRITING STYLE:
 - Warm
 - Human
@@ -876,12 +1500,12 @@ End with:
     if (
         report_type == "premium"
         and report_style in ("full", "full_plus_consultation")
-        and "## 11. Direct Answer Section" in report_instruction
+        and "## 18. Direct Answer Section" in report_instruction
     ):
         complete_report_instruction = (
             report_instruction
             .replace("# Premium Vedic Astrology Report", "# Complete Astrology Report")
-            .split("## 11. Direct Answer Section")[0]
+            .split("## 18. Direct Answer Section")[0]
             .rstrip()
         )
 
@@ -931,10 +1555,11 @@ If multiple questions appear, identify the first major question and answer only 
 Do not attempt to answer every question.
 Ignore secondary questions.
 
-For Hindi reports in this Part 2 consultation:
-Keep all headings in English.
-Use "Your Question", "Direct Answer", "Overall Assessment", "Time Period", and "Practical Advice" as headings.
-Write only the paragraph body in Hindi.
+For the personal consultation Direct Answer section, use headings based on Report Language.
+
+English reports must use English headings and English body text.
+Hindi reports must use Hindi headings and simple Hindi body text.
+Hinglish reports must use Hinglish headings and easy Hinglish body text.
 
 Use this format exactly:
 
@@ -1048,6 +1673,72 @@ Direct Answer
 Overall Assessment
 
 Write the question and answer body in Hindi.
+
+FINAL OVERRIDE FOR DIRECT ANSWER SECTION:
+Ignore any older Direct Answer heading examples above if they conflict with this rule.
+
+If the user has asked a specific question, create the section title and sub-headings based on Report Language.
+
+For English report, use exactly:
+
+### Direct Answer to Your Question
+
+### Your Question
+
+### Brief Answer
+
+### What the Chart Indicates
+
+### Possible Time Period
+
+### Practical Advice
+
+For Hindi report, use exactly:
+
+### आपके प्रश्न का सीधा उत्तर
+
+### आपका प्रश्न
+
+### संक्षिप्त उत्तर
+
+### कुंडली क्या संकेत देती है
+
+### संभावित समय अवधि
+
+### व्यावहारिक सलाह
+
+For Hinglish report, use exactly:
+
+### Aapke Sawal Ka Seedha Jawaab
+
+### Aapka Sawal
+
+### Short Answer
+
+### Kundli Kya Sanket Deti Hai
+
+### Sambhavit Samay
+
+### Practical Advice
+
+Do not mix languages in headings.
+
+If report language is English, all headings and body text must be in English.
+
+If report language is Hindi, headings and body text must be in simple Hindi.
+
+If report language is Hinglish, headings should be Hinglish and body should be easy Hinglish.
+
+Do not use numbering.
+
+Do not write:
+1)
+2)
+3)
+
+Under "Your Question", rewrite and repeat the user's question in a clean, professional way.
+
+Do not copy the user's raw question word-for-word if it sounds informal, emotional, unstructured or grammatically rough.
 
 ## Time Period
 Give realistic timing tendencies if applicable. Avoid guaranteed dates.
@@ -1230,17 +1921,40 @@ Correct: Is phase mein aapko apni aadaton aur decisions ko practical tareeke se 
 
 The report should sound like advice, not poetry.
 """
+    elif language == "english":
+       language_instruction = """
+Generate the entire report in English only.
+
+Use natural, professional English.
+
+Do not use Hindi words, Hindi headings, or Devanagari script anywhere in the report.
+
+STRICT LANGUAGE RULE:
+
+Never use:
+आपका प्रश्न
+संक्षिप्त उत्तर
+कुंडली क्या संकेत देती है
+संभावित समय अवधि
+व्यावहारिक सलाह
+
+Always use:
+
+Your Question
+Brief Answer
+What the Chart Indicates
+Possible Time Period
+Practical Advice
+
+All headings and body text must remain in English.
+"""
     else:
         language_instruction = """
-Write the entire report in simple natural English.
+Generate the entire report in English only.
 
-Keep all markdown headings and section titles in English exactly as given in the report format.
+Use only English headings and English body text.
 
-Avoid complicated words.
-
-Write like an astrologer speaking to an intelligent friend.
-
-Use simple words instead of academic or psychological jargon.
+Do not use Hindi, Hinglish, Roman Hindi, or Devanagari script.
 """
 
     prompt = f"""
@@ -1458,9 +2172,12 @@ Report Language:
 Language Instructions:
 {language_instruction}
 
-Strictly follow the selected report language. Do not switch to English unless Report Language is english.
-Keep all report headings in English for every language.
-
+Strictly follow Report Language.
+If Report Language is english, every heading, label, table, and paragraph must be English only.
+Do not use Hindi, Hinglish, Roman Hindi, or Devanagari script in English reports.
+If Report Language is english, keep all headings and body text in English.
+If Report Language is hindi, use Hindi headings and Hindi body text.
+If Report Language is hinglish, use Hinglish headings and Hinglish body text.
 User Current Life Context:
 {user_context}
 
@@ -1533,53 +2250,88 @@ No fear-based prediction.
 No guaranteed claims.
 """
 
-    response = client.chat.completions.create(
-        model="gpt-5-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    f"You must follow the provided current Mahadasha exactly: "
-                    f"{current_dasha['planet']} Mahadasha. Never name another planet as Mahadasha. "
-                    f"You must write the report in this language: {language}."
-                )
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-    )
-
-    report = response.choices[0].message.content
-    wrong_planets = validate_dasha_mentions(report, current_dasha["planet"])
-
-    if wrong_planets:
+    try:
+        print("OPENAI MAIN REPORT REQUEST STARTING")
         response = client.chat.completions.create(
             model="gpt-5-mini",
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        f"Rewrite the report. The only allowed Mahadasha is "
-                        f"{current_dasha['planet']} Mahadasha. Remove all references "
-                        f"to these incorrect Mahadashas: {', '.join(wrong_planets)}. "
-                        f"Keep the report language as {language}."
+                        f"You must follow the provided current Mahadasha exactly: "
+                        f"{current_dasha['planet']} Mahadasha. Never name another planet as Mahadasha. "
+                        f"You must write the report in this language: {language}."
                     )
                 },
                 {
                     "role": "user",
-                    "content": report
+                    "content": prompt
                 }
             ]
         )
-        report = response.choices[0].message.content
+        print("OPENAI MAIN REPORT REQUEST COMPLETE")
+    except Exception as e:
+        print("OPENAI MAIN REPORT REQUEST FAILED:", str(e))
+        raise
 
+    print("OPENAI MAIN REPORT CONTENT EXTRACTION STARTING")
+    report = response.choices[0].message.content
+    print("OPENAI MAIN REPORT CONTENT EXTRACTION COMPLETE")
+    if language == "english":
+        print("ENGLISH REPORT CLEANUP STARTING")
+        report = enforce_english_report_language(report)
+        print("ENGLISH REPORT CLEANUP COMPLETE")
+
+    print("VALIDATING DASHA MENTIONS STARTING")
+    wrong_planets = validate_dasha_mentions(report, current_dasha["planet"])
+    print("VALIDATING DASHA MENTIONS COMPLETE", wrong_planets)
+
+    if wrong_planets:
+        try:
+            print("OPENAI MAHADASHA REWRITE REQUEST STARTING")
+            response = client.chat.completions.create(
+                model="gpt-5-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            f"Rewrite the report. The only allowed Mahadasha is "
+                            f"{current_dasha['planet']} Mahadasha. Remove all references "
+                            f"to these incorrect Mahadashas: {', '.join(wrong_planets)}. "
+                            f"Keep the report language as {language}."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": report
+                    }
+                ]
+            )
+            print("OPENAI MAHADASHA REWRITE REQUEST COMPLETE")
+        except Exception as e:
+            print("OPENAI MAHADASHA REWRITE REQUEST FAILED:", str(e))
+            raise
+        print("OPENAI MAHADASHA REWRITE CONTENT EXTRACTION STARTING")
+        report = response.choices[0].message.content
+        print("OPENAI MAHADASHA REWRITE CONTENT EXTRACTION COMPLETE")
+        if language == "english":
+            print("ENGLISH REPORT CLEANUP AFTER REWRITE STARTING")
+            report = enforce_english_report_language(report)
+            print("ENGLISH REPORT CLEANUP AFTER REWRITE COMPLETE")
+
+        print("VALIDATING DASHA MENTIONS AFTER REWRITE STARTING")
         wrong_planets = validate_dasha_mentions(report, current_dasha["planet"])
+        print("VALIDATING DASHA MENTIONS AFTER REWRITE COMPLETE", wrong_planets)
         if wrong_planets:
             raise ValueError(
                 "AI response mentioned incorrect Mahadasha: "
                 + ", ".join(wrong_planets)
             )
+
+    report = report.replace(" — Revised", "")
+    report = report.replace(" - Revised", "")
+    report = report.replace("— Revised", "")
+    report = report.replace("- Revised", "")
+    report = report.replace("Revised", "")
 
     return report

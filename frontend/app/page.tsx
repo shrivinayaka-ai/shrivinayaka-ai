@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
+import { downloadProfessionalReport } from "@/lib/pdfmakeReport";
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8001";
 
 const PENDING_REPORT_PAYLOAD_KEY = "shrivinayaka_pending_report_payload";
 const COMPLETED_REPORT_KEY = "shrivinayaka_completed_report";
@@ -21,7 +23,7 @@ const loadingMessages = [
   "Reviewing the current Antardasha...",
   "Mapping present planetary transits...",
   "Generating your personalized report...",
-  "Your report is ready.",
+  "Your report is getting ready.",
 ];
 
 const sampleReports = [
@@ -111,6 +113,20 @@ type ReportData = {
     start: string;
     end: string;
   }>;
+  upcoming_antardasha_rows?: Array<{
+    period: string;
+    start?: string;
+    end?: string;
+    start_date?: string;
+    end_date?: string;
+  }>;
+  next_antardasha_rows?: Array<{
+    period: string;
+    start?: string;
+    end?: string;
+    start_date?: string;
+    end_date?: string;
+  }>;
   chart?: Record<string, any>;
   charts?: ReportCharts;
   life_area_scores?: LifeAreaScores;
@@ -142,6 +158,142 @@ const getCoverTitle = (style: string) => {
 
   return "Complete Astrology Report";
 };
+
+const getChildrenText = (children: ReactNode): string =>
+  Array.isArray(children)
+    ? children
+        .map((child) => getChildrenText(child))
+        .join("")
+        .trim()
+    : typeof children === "string" || typeof children === "number"
+      ? String(children).trim()
+      : "";
+
+function removeAntardashaTimelineText(markdown: string) {
+  const withoutFakeBlock = markdown.replace(
+    /(?:^|\n)(?!##\s*14\.)(?:##\s*)?\d+\.\s*Antardasha Timeline[\s\S]*?(?=\n##\s*14\.|\n##\s*15\.|\n#|\s*$)/i,
+    "\n"
+  );
+
+  return withoutFakeBlock.replace(
+    /(?:^|\n)##\s*14\.\s*Antardasha Timeline[\s\S]*?(?=\n##\s*15\.|\n#|\s*$)/i,
+    "\n## 14. Antardasha Timeline\n\n"
+  );
+}
+
+type BrowserTransitBlock = {
+  heading: string;
+  paragraphs: string[];
+};
+
+type BrowserTransitCard = {
+  title: string;
+  blocks: BrowserTransitBlock[];
+};
+
+function extractBrowserTransitSection(markdown: string): {
+  markdown: string;
+  cards: BrowserTransitCard[];
+} {
+  const match = markdown.match(
+    /(?:^|\n)(##\s*10\.\s*Current Transit Analysis)([\s\S]*?)(?=\n##\s*11\.|\n#\s*PART 2|\s*$)/i
+  );
+
+  if (!match) {
+    return { markdown, cards: [] };
+  }
+
+  const sectionBody = match[2].trim();
+  const lines = sectionBody
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const cards: BrowserTransitCard[] = [];
+  let currentCard: BrowserTransitCard | null = null;
+  let currentBlock: BrowserTransitBlock | null = null;
+
+  const isPlanetHeading = (value: string) =>
+    /^#{3,4}\s*(Saturn|Jupiter|Rahu|Ketu)\s+in\s+\d+(st|nd|rd|th)\s+House(\s+from\s+Moon)?$/i.test(
+      value
+    );
+
+  const isInnerHeading = (value: string) =>
+    /^####\s*(Saturn Impact|Jupiter Impact|Rahu Impact|Ketu Impact|Impact from Ascendant|Impact from Ascendent|Impact from Moon|Practical Advice)$/i.test(
+      value
+    );
+
+  const flushBlock = () => {
+    if (currentCard && currentBlock) {
+      currentCard.blocks.push(currentBlock);
+      currentBlock = null;
+    }
+  };
+
+  const flushCard = () => {
+    flushBlock();
+    if (currentCard) {
+      cards.push(currentCard);
+      currentCard = null;
+    }
+  };
+
+  lines.forEach((line) => {
+    if (isPlanetHeading(line)) {
+      const headingText = line.replace(/^#{3,4}\s*/, "");
+
+      if (/from\s+Moon$/i.test(headingText) && currentCard) {
+        flushBlock();
+        currentBlock = {
+          heading: headingText,
+          paragraphs: [],
+        };
+        return;
+      }
+
+      flushCard();
+      currentCard = {
+        title: headingText,
+        blocks: [],
+      };
+      return;
+    }
+
+    if (isInnerHeading(line)) {
+      flushBlock();
+      currentBlock = {
+        heading: line.replace(/^####\s*/, ""),
+        paragraphs: [],
+      };
+      return;
+    }
+
+    if (!currentCard) {
+      return;
+    }
+
+    if (!currentBlock) {
+      currentBlock = {
+        heading: "Details",
+        paragraphs: [],
+      };
+    }
+
+    currentBlock.paragraphs.push(line);
+  });
+
+  flushCard();
+
+  const cleanedMarkdown = markdown.replace(
+    /(?:^|\n)##\s*10\.\s*Current Transit Analysis[\s\S]*?(?=\n##\s*11\.|\n#\s*PART 2|\s*$)/i,
+    "\n## 10. Current Transit Analysis\n\n<div class=\"BROWSER_TRANSIT_SECTION_PLACEHOLDER\"></div>\n"
+  );
+
+  return {
+    markdown: cleanedMarkdown,
+    cards,
+  };
+}
 
 const ordinal = (n: number) => {
   const suffix =
@@ -376,6 +528,33 @@ function LifeAreaScoresSection({
   );
 }
 
+function AntardashaTimelineTable({ rows }: { rows?: any[] }) {
+  if (!rows || rows.length === 0) return null;
+
+  return (
+    <div className="report-table-wrap">
+      <table className="report-table">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>Start Date</th>
+            <th>End Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 6).map((row, index) => (
+            <tr key={`${row.period}-${index}`}>
+              <td>{row.period}</td>
+              <td>{row.start || row.start_date}</td>
+              <td>{row.end || row.end_date}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Home() {
   const [formData, setFormData] = useState({
     name: "",
@@ -402,11 +581,16 @@ export default function Home() {
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   const [report, setReport] = useState<ReportData | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isClient, setIsClient] = useState(false);
   const [paymentId, setPaymentId] = useState("");
   const [paymentDone, setPaymentDone] = useState(false);
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<any[]>([]);
   const [useManualCoordinates, setUseManualCoordinates] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
     if (!loading) {
@@ -659,6 +843,7 @@ export default function Home() {
       ...formData,
       birth_date: formatDateForBackend(getBirthDateForBackend()),
       report_type: reportType,
+      current_concern: formData.current_concern || "general",
       payment_token: paymentToken,
       payment_id: razorpayPaymentId,
       latitude: hasCoordinates ? Number(formData.latitude) : null,
@@ -682,7 +867,7 @@ export default function Home() {
       const response = await axios.post(
         `${API_BASE_URL}/generate-report`,
         payload,
-        { timeout: 180000 }
+        { timeout: 900000 }
       );
 
       console.log("REPORT RESPONSE:", response.data);
@@ -698,41 +883,60 @@ export default function Home() {
   };
 
   const generateReportAfterPayment = async (
-    paymentToken: string,
-    razorpayPaymentId: string,
+    paymentData?: any,
     savedPayload?: Record<string, any>
   ) => {
+    console.log("GENERATE REPORT AFTER PAYMENT STARTED");
+    const paymentToken = paymentData?.payment_token ?? null;
+    const razorpayPaymentId = paymentData?.payment_id ?? null;
     const payload = savedPayload
       ? {
           ...savedPayload,
           report_type: "premium",
+          current_concern: savedPayload.current_concern || "general",
           payment_token: paymentToken,
           payment_id: razorpayPaymentId,
+          order_id: paymentData?.order_id,
+          signature: paymentData?.signature,
+          payment_verified: paymentData?.payment_verified === true,
         }
-      : buildReportPayload("premium", paymentToken, razorpayPaymentId);
+      : {
+          ...buildReportPayload("premium", paymentToken, razorpayPaymentId),
+          order_id: paymentData?.order_id,
+          signature: paymentData?.signature,
+          payment_verified: paymentData?.payment_verified === true,
+        };
 
     try {
       setLoading(true);
       setErrorMessage("");
       setReport(null);
       console.log("REPORT AFTER PAYMENT PAYLOAD:", payload);
+      console.log("API_BASE_URL:", API_BASE_URL);
 
       const response = await axios.post(
         `${API_BASE_URL}/generate-report`,
         payload,
-        { timeout: 180000 }
+        { timeout: 900000 }
       );
 
       console.log("REPORT RESPONSE:", response.data);
       setReport(response.data);
       window.sessionStorage.removeItem(PENDING_REPORT_PAYLOAD_KEY);
-    } catch (error) {
-      console.error("Report generation failed:", error);
+    } catch (error: any) {
+      console.error("REPORT GENERATION ERROR:", error);
+      console.error("STATUS:", error?.response?.status);
+      console.error("BACKEND RESPONSE:", error?.response?.data);
+      console.error(
+        "BACKEND RESPONSE STRING:",
+        JSON.stringify(error?.response?.data, null, 2)
+      );
+
       setErrorMessage(
-        "Payment successful, but report generation failed. Please contact support with your payment ID."
+        `Report generation failed: ${error?.response?.data?.detail || error?.message}`
       );
       alert(
-        `Payment successful, but report generation failed. Please contact support with payment ID: ${razorpayPaymentId}`
+        `Report generation failed: ${error?.response?.data?.detail || error?.message}`
       );
     } finally {
       setLoading(false);
@@ -831,8 +1035,13 @@ export default function Home() {
 
         if (verifyResponse.data.success) {
           await generateReportAfterPayment(
-            verifyResponse.data.payment_token,
-            razorpayPaymentId,
+            {
+              payment_id: razorpayPaymentId,
+              order_id: razorpayOrderId,
+              signature: razorpaySignature,
+              payment_token: verifyResponse.data.payment_token,
+              payment_verified: true,
+            },
             savedPayload
           );
         } else {
@@ -852,6 +1061,7 @@ export default function Home() {
   }, []);
 
   const generateReport = async () => {
+    console.log("GENERATE BUTTON CLICKED", formData);
     console.log("Generate Report clicked", formData);
 
     if (!validateRequiredFields()) {
@@ -867,6 +1077,7 @@ export default function Home() {
   };
 
   const generatePremiumReport = async () => {
+    console.log("PREMIUM REPORT STARTED");
     try {
       setLoading(true);
       const pendingPayload = buildReportPayload("premium");
@@ -887,7 +1098,9 @@ export default function Home() {
       const { order_id, amount, currency, key } = orderResponse.data;
 
       if (!(window as any).Razorpay) {
-        alert("Razorpay script not loaded");
+        alert(
+          "Payment window was blocked by an ad blocker or browser privacy setting. Please disable ad blocker for this site, then try again. If the issue continues, contact pt.devji@gmail.com."
+        );
         return;
       }
 
@@ -896,9 +1109,7 @@ export default function Home() {
         JSON.stringify(pendingPayload)
       );
 
-      const useCallbackRedirect =
-        window.location.hostname !== "localhost" &&
-        window.location.hostname !== "127.0.0.1";
+      const useCallbackRedirect = false;
 
       const options: Record<string, any> = {
         key,
@@ -924,10 +1135,13 @@ export default function Home() {
               );
 
               if (verifyResponse.data.success) {
-                await generateReportAfterPayment(
-                  verifyResponse.data.payment_token,
-                  response.razorpay_payment_id
-                );
+                await generateReportAfterPayment({
+                  payment_id: response.razorpay_payment_id,
+                  order_id: response.razorpay_order_id,
+                  signature: response.razorpay_signature,
+                  payment_token: verifyResponse.data.payment_token,
+                  payment_verified: true,
+                });
               } else {
                 alert("Payment verification failed");
               }
@@ -959,23 +1173,20 @@ export default function Home() {
         },
       };
 
-      if (useCallbackRedirect) {
-        options.callback_url = `${window.location.origin}/api/razorpay-callback`;
-        options.redirect = true;
-      }
-
       const razorpay = new (window as any).Razorpay(options);
       razorpay.open();
     } catch (error) {
       console.error(error);
-      alert("Payment initialization failed");
+      alert(
+        "Payment window was blocked by an ad blocker or browser privacy setting. Please disable ad blocker for this site, then try again. If the issue continues, contact pt.devji@gmail.com."
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const formatReportMarkdown = (text: string) =>
-    text
+  const formatReportMarkdown = (text: string) => {
+    let formatted = text
       .split("\n")
       .map((line) => {
         const trimmed = line.trim();
@@ -1007,6 +1218,13 @@ export default function Home() {
         }
 
         if (
+          trimmed === "PART 1 - Complete Astrology Report" ||
+          trimmed === "PART 2 - Personal Consultation Analysis"
+        ) {
+          return `# ${trimmed}`;
+        }
+
+        if (
           /^(Saturn|Jupiter|Rahu|Ketu) Impact:?$/i.test(trimmed) ||
           /^(Impact from Ascendant|Impact from Ascendent|Impact from Moon|Practical Advice):?$/i.test(
             trimmed
@@ -1017,6 +1235,34 @@ export default function Home() {
 
         if (/^(Period|Prediction|Advice):$/i.test(trimmed)) {
           return `#### ${trimmed.replace(/:$/, "")}`;
+        }
+
+        const plainHeadingMap: Record<string, string> = {
+          "PART 1 - Complete Astrology Report":
+            "# PART 1 - Complete Astrology Report",
+          "PART 2 - Personal Consultation Analysis":
+            "# PART 2 - Personal Consultation Analysis",
+          "Relationship, Marriage & Emotional Compatibility":
+            "## 8. Relationship, Marriage & Emotional Compatibility",
+          "Health & Mental Wellbeing":
+            "## 9. Health & Mental Wellbeing",
+          "Antardasha Timeline": "## 14. Antardasha Timeline",
+          "Next 3 Years Roadmap": "## 15. Next 3 Years Roadmap",
+          "Practical Advice": "### Practical Advice",
+          "Your Question": "### Your Question",
+          "Brief Answer": "### Brief Answer",
+          "What the Chart Indicates": "### What the Chart Indicates",
+          "Possible Time Period": "### Possible Time Period",
+        };
+
+        for (const [heading, markdownHeading] of Object.entries(plainHeadingMap)) {
+          if (trimmed === heading) {
+            return markdownHeading;
+          }
+
+          if (trimmed.startsWith(`${heading} `)) {
+            return `${markdownHeading}\n\n${trimmed.replace(heading, "").trim()}`;
+          }
         }
 
         if (
@@ -1038,6 +1284,49 @@ export default function Home() {
         return line;
       })
       .join("\n");
+
+    formatted = formatted.replace(
+      /Moon Sign:\s*([^\n]+)\n+Nakshatra:\s*([^\n]+)\n+Pada:\s*([^\n]+)\n+Nakshatra Lord:\s*([^\n]+)/gi,
+      "**Moon Sign:** $1  |  **Nakshatra:** $2  |  **Pada:** $3  |  **Nakshatra Lord:** $4"
+    );
+
+    formatted = formatted.replace(/\bProbability:/g, "**Probability:**");
+    formatted = formatted.replace(/\bOutcome:/g, "**Outcome:**");
+    formatted = formatted.replace(/\bStart Date:/g, "**Start Date:**");
+    formatted = formatted.replace(/\bEnd Date:/g, "**End Date:**");
+    formatted = formatted.replace(/\bPeriod:/g, "**Period:**");
+    formatted = formatted.replace(/\bAdvice:/g, "**Advice:**");
+    formatted = formatted.replace(/\bPrediction:/g, "**Prediction:**");
+    formatted = formatted.replace(
+      /(^|\n)(\d{4}-\d{2}-\d{2}\s+to\s+\d{4}-\d{2}-\d{2})(?=\n|$)/g,
+      "$1**$2**"
+    );
+    formatted = formatted.replace(
+      /## (\d+\.\s*Career, Work & Success Path)/g,
+      "## $1\n\nCareer direction, professional strengths, work instability and practical growth path are analyzed here."
+    );
+    formatted = formatted.replace(
+      /## (\d+\.\s*Money & Financial Stability)/g,
+      "## $1\n\nThis section explains income pattern, saving ability, financial pressure and practical money discipline."
+    );
+    formatted = formatted.replace(
+      /## (\d+\.\s*Relationship, Marriage & Emotional Compatibility)/g,
+      "## $1\n\nThis section studies emotional compatibility, relationship delays and long-term partnership tendencies."
+    );
+    formatted = formatted.replace(
+      /## (\d+\.\s*Current Transit Analysis)/g,
+      "## $1\n\nCurrent planetary movements are interpreted from Ascendant and Moon to understand immediate life pressure and opportunity."
+    );
+    formatted = formatted.replace(
+      /## (\d+\.\s*Next 3 Years Roadmap)/g,
+      "## $1\n\nA practical year-wise roadmap based on Mahadasha, Antardasha and current transits."
+    );
+    formatted = formatted
+      .replace("(Rewritten)", "")
+      .replace("Rewritten", "");
+
+    return formatted;
+  };
 
   const downloadPDF = async () => {
     if (!report) {
@@ -1077,6 +1366,9 @@ export default function Home() {
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;")
           .replace(/'/g, "&#039;");
+
+      const renderInlinePdfText = (value: string) =>
+        escapeHtml(value).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 
       const formatLabel = (value?: string) => {
         if (!value) {
@@ -1136,8 +1428,21 @@ export default function Home() {
         return filtered.join("\n");
       };
 
+      const pdfAntardashaRows =
+        report.upcoming_antardasha_rows ||
+        report.next_antardasha_rows ||
+        report.antardasha_timeline;
+
+      const getAntardashaRowStart = (
+        item: NonNullable<typeof pdfAntardashaRows>[number]
+      ) => ("start_date" in item ? item.start_date : item.start) || "-";
+
+      const getAntardashaRowEnd = (
+        item: NonNullable<typeof pdfAntardashaRows>[number]
+      ) => ("end_date" in item ? item.end_date : item.end) || "-";
+
       const buildAntardashaTableHtml = () =>
-        report.antardasha_timeline?.length
+        pdfAntardashaRows?.length
           ? `
             <table class="dasha-table">
               <thead>
@@ -1148,13 +1453,14 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody>
-                ${report.antardasha_timeline
+                ${pdfAntardashaRows
+                  .slice(0, 6)
                   .map(
                     (item) => `
                       <tr>
                         <td><strong>${escapeHtml(item.period)}</strong></td>
-                        <td><strong>${escapeHtml(item.start)}</strong></td>
-                        <td><strong>${escapeHtml(item.end)}</strong></td>
+                        <td><strong>${escapeHtml(getAntardashaRowStart(item))}</strong></td>
+                        <td><strong>${escapeHtml(getAntardashaRowEnd(item))}</strong></td>
                       </tr>
                     `
                   )
@@ -1174,6 +1480,7 @@ export default function Home() {
         let finalObservationOpen = false;
         let dashaEmphasisBoxOpen = false;
         let skipAiAntardashaTimeline = false;
+        let reportSectionOpen = false;
 
         const closeTransitSubBox = () => {
           if (!transitSubBoxOpen) {
@@ -1233,11 +1540,27 @@ export default function Home() {
           return "</div>";
         };
 
+        const closeReportSection = () => {
+          if (!reportSectionOpen) {
+            return "";
+          }
+
+          reportSectionOpen = false;
+          return "</section>";
+        };
+
         const closeSpecialBlocks = () =>
-          `${closeDashaEmphasisBox()}${closeTransitAnalysisSection()}${closeRoadmapYear()}${closeFinalObservation()}`;
+          `${closeDashaEmphasisBox()}${closeTransitAnalysisSection()}${closeRoadmapYear()}${closeFinalObservation()}${closeReportSection()}`;
 
         const isTransitPlanetHeading = (heading: string) =>
           /^(Saturn|Jupiter|Rahu|Ketu)\b/i.test(heading);
+
+        const isTransitSubHeading = (heading: string) =>
+          /^(Saturn|Jupiter|Rahu|Ketu)\s+Impact:?$/i.test(heading) ||
+          /^(Impact from Ascendant|Impact from Ascendent|Impact from Moon|Practical Advice):?$/i.test(
+            heading
+          ) ||
+          /(House\s+from\s+Moon):?$/i.test(heading);
 
         const isFinalObservationHeading = (heading: string) =>
           /^(final observation|final observation:|final guidance|final guidance:)$/i.test(
@@ -1270,25 +1593,34 @@ export default function Home() {
             }
 
             if (trimmed.startsWith("# ")) {
+              const headingText = trimmed.replace(/^#\s+/, "");
               inTransitSection = false;
               skipAiAntardashaTimeline = false;
               inRoadmapSection = false;
-              return `${closeSpecialBlocks()}<h1>${escapeHtml(
-                trimmed.replace(/^#\s+/, "")
-              )}</h1>`;
+
+              if (/^PART\s+[12]\s*-/i.test(headingText)) {
+                return `${closeSpecialBlocks()}<h1 class="report-part-title">${escapeHtml(
+                  headingText
+                )}</h1>`;
+              }
+
+              return `${closeSpecialBlocks()}<h1>${escapeHtml(headingText)}</h1>`;
             }
 
             if (trimmed.startsWith("## ")) {
               const headingText = trimmed.replace(/^##\s+/, "");
               const heading = escapeHtml(headingText);
-              const className = heading.includes("PART 2")
-                ? " class=\"part-heading\""
-                : "";
               const closing = closeSpecialBlocks();
 
               inTransitSection = /current transit analysis/i.test(headingText);
               skipAiAntardashaTimeline = false;
               inRoadmapSection = isRoadmapHeading(headingText);
+
+              if (/^PART\s+[12]\s*-/i.test(headingText)) {
+                inTransitSection = false;
+                inRoadmapSection = false;
+                return `${closing}<h1 class="report-part-title">${heading}</h1>`;
+              }
 
               if (isFinalObservationHeading(headingText)) {
                 inTransitSection = false;
@@ -1302,12 +1634,13 @@ export default function Home() {
                 return `${closing}<section class="report-section transit-analysis-section"><h2>${heading}</h2>`;
               }
 
-              if (isAntardashaTimelineHeading(headingText) && report.antardasha_timeline?.length) {
+              if (isAntardashaTimelineHeading(headingText) && pdfAntardashaRows?.length) {
                 skipAiAntardashaTimeline = true;
                 return `${closing}<section class="report-section dasha-timeline-section"><h2>${heading}</h2>${buildAntardashaTableHtml()}</section>`;
               }
 
-              return `${closing}<h2${className}>${heading}</h2>`;
+              reportSectionOpen = true;
+              return `${closing}<section class="report-section"><h2>${heading}</h2>`;
             }
 
             if (skipAiAntardashaTimeline) {
@@ -1333,6 +1666,14 @@ export default function Home() {
                 )}</h3>`;
               }
 
+              if (inTransitSection && transitBoxOpen && isTransitSubHeading(headingText)) {
+                const closing = closeTransitSubBox();
+                transitSubBoxOpen = true;
+                return `${closing}<div class="transit-sub-box"><h4>${escapeHtml(
+                  headingText.replace(/:$/, "")
+                )}</h4>`;
+              }
+
               if (inRoadmapSection && isRoadmapYearHeading(headingText)) {
                 const closing = closeRoadmapYear();
                 roadmapYearOpen = true;
@@ -1351,7 +1692,7 @@ export default function Home() {
                 const closing = closeTransitSubBox();
                 transitSubBoxOpen = true;
                 return `${closing}<div class="transit-sub-box"><h4>${escapeHtml(
-                  headingText
+                  headingText.replace(/:$/, "")
                 )}</h4>`;
               }
 
@@ -1363,7 +1704,7 @@ export default function Home() {
             }
 
             if (trimmed.startsWith("- ")) {
-              return `<p class="bullet">&#8226; ${escapeHtml(
+              return `<p class="bullet">&#8226; ${renderInlinePdfText(
                 trimmed.replace(/^-\s+/, "")
               )}</p>`;
             }
@@ -1379,12 +1720,33 @@ export default function Home() {
               return `<div class="summary-card dasha-summary-box dasha-ai-box">${content}`;
             }
 
-            return `${closeDashaEmphasisBox()}<p>${escapeHtml(trimmed)}</p>`;
+            return `${closeDashaEmphasisBox()}<p>${renderInlinePdfText(trimmed)}</p>`;
           })
           .join("");
 
         return `${html}${closeSpecialBlocks()}`;
       };
+
+      const wrapReportSections = (html: string) =>
+        html.replace(
+          /(<h2[^>]*>[\s\S]*?<\/h2>)([\s\S]*?)(?=<h2|<h1|$)/g,
+          (_match, heading, body) => {
+            const isLong = body.length > 1200;
+            const className = isLong ? "report-card-long" : "report-card";
+            return `<section class="${className}">${heading}${body}</section>`;
+          }
+        );
+
+      const normalizePdfReportHtml = (html: string) =>
+        html
+          .replace(
+            /<h3[^>]*>(Brief Chart Summary|Factors Relevant To Question|Current Dasha Impact|Ketu Mahadasha|Current Transit Impact|Saturn Impact|Jupiter Impact|Rahu Impact|Ketu Impact|Brief Answer|What the Chart Indicates|Possible Time Period|Practical Advice|Final Observation)<\/h3>/gi,
+            "<h2>$1</h2>"
+          )
+          .replace(/<div class="report-card">\s*<\/div>/g, "")
+          .replace(/<section class="report-card">\s*<\/section>/g, "")
+          .replace(/<div class="report-card-long">\s*<\/div>/g, "")
+          .replace(/<section class="report-card-long">\s*<\/section>/g, "");
 
       const chartHtml = report.chart
         ? `
@@ -1482,7 +1844,10 @@ export default function Home() {
         return "score-attention";
       };
 
-      const buildScoreRows = (items: LifeAreaScore[]) =>
+      const buildScoreRows = (
+        items: LifeAreaScore[],
+        variant?: "green" | "red"
+      ) =>
         items
           .map(
             (item) => `
@@ -1491,7 +1856,17 @@ export default function Home() {
                   <strong>${escapeHtml(item.title)}</strong>
                   <small>${escapeHtml(item.meaning)}</small>
                 </div>
-                <span class="score-circle">${escapeHtml(String(item.score))}/100</span>
+                <span class="score-circle ${
+                  variant === "green"
+                    ? "score-green"
+                    : variant === "red"
+                      ? "score-red"
+                      : item.score >= 60
+                        ? "score-green"
+                        : item.score <= 45
+                          ? "score-red"
+                          : "score-gold"
+                }">${escapeHtml(String(item.score))}/100</span>
               </div>
             `
           )
@@ -1509,12 +1884,12 @@ export default function Home() {
             <div class="score-summary-grid">
               <div class="score-summary-card strong-card">
                 <h3>Top Strong Areas</h3>
-                ${buildScoreRows(report.life_area_scores.top_strong)}
+                ${buildScoreRows(report.life_area_scores.top_strong, "green")}
               </div>
 
               <div class="score-summary-card attention-card">
                 <h3>Growth Opportunities</h3>
-                ${buildScoreRows(report.life_area_scores.top_attention)}
+                ${buildScoreRows(report.life_area_scores.top_attention, "red")}
               </div>
             </div>
 
@@ -1626,7 +2001,6 @@ export default function Home() {
             padding: 32px;
             background: #fffaf0;
             box-sizing: border-box;
-            page-break-after: always;
             font-family: "Nirmala UI", "Mangal", "Noto Sans Devanagari", "Arial Unicode MS", "Inter", Arial, sans-serif;
             color: #1f1f1f;
           }
@@ -1636,7 +2010,6 @@ export default function Home() {
             padding: 36px;
             background: #fffaf0;
             page-break-after: always;
-            break-after: page;
             box-sizing: border-box;
           }
 
@@ -1972,6 +2345,11 @@ export default function Home() {
             color: #111111 !important;
           }
 
+          .dasha-table tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
           .dasha-table tr:nth-child(even) td {
             background: #fff7e8 !important;
           }
@@ -2116,21 +2494,32 @@ export default function Home() {
           }
 
           .score-circle {
-            width: 64px;
-            height: 64px;
+            width: 58px;
+            height: 58px;
             border-radius: 50%;
-            background: #a40000;
             color: #ffffff;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
             text-align: center;
-            font-weight: 700;
-            font-size: 15px;
+            font-weight: 900;
+            font-size: 14px;
             padding: 0 !important;
             line-height: 1 !important;
             box-sizing: border-box !important;
             flex: 0 0 auto;
+          }
+
+          .score-green {
+            background: #087f3f !important;
+          }
+
+          .score-red {
+            background: #b00000 !important;
+          }
+
+          .score-gold {
+            background: #c88400 !important;
           }
 
           .score-all-heading {
@@ -2329,8 +2718,11 @@ export default function Home() {
             padding: 16px;
             margin: 14px 0;
             background: #ffffff !important;
-            page-break-inside: avoid;
-            break-inside: avoid;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            page-break-inside: auto !important;
+            break-inside: auto !important;
           }
 
           .transit-box h3 {
@@ -2342,13 +2734,17 @@ export default function Home() {
           }
 
           .transit-sub-box {
-            border-left: 4px solid #9b0000;
-            padding: 10px 14px;
-            margin: 10px 0;
+            border-left: none !important;
+            border: 1px solid #ead8b8 !important;
+            border-radius: 8px !important;
+            padding: 12px 14px !important;
+            margin: 10px 0 12px !important;
             background: #ffffff !important;
-            border-radius: 10px;
-            page-break-inside: avoid;
-            break-inside: avoid;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            page-break-inside: auto !important;
+            break-inside: auto !important;
           }
 
           .transit-sub-box h4 {
@@ -2418,57 +2814,174 @@ export default function Home() {
             break-inside: auto !important;
           }
 
+          .report-part-title {
+            text-align: center !important;
+            font-size: 24px !important;
+            line-height: 1.25 !important;
+            font-weight: 900 !important;
+            color: #8b0000 !important;
+            margin: 10px 0 18px !important;
+            padding: 8px 0 !important;
+            border-top: 2px solid #d4af37 !important;
+            border-bottom: 2px solid #d4af37 !important;
+            overflow: visible !important;
+            page-break-before: auto !important;
+            break-before: auto !important;
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+            min-height: 0 !important;
+            height: auto !important;
+            font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
+          }
+
+          .part-page,
+          .report-part-page {
+            min-height: 0 !important;
+            height: auto !important;
+            page-break-before: auto !important;
+            break-before: auto !important;
+            page-break-after: auto !important;
+            break-after: auto !important;
+          }
+
+          .report-section {
+            margin-bottom: 40px;
+            padding-bottom: 30px;
+            border-bottom: 1px solid #d8c7a0;
+            page-break-inside: auto;
+            break-inside: auto;
+          }
+
+          .consultation-section {
+            break-inside: auto;
+            page-break-inside: auto;
+          }
+
+          .report-content h1,
+          .report-content h2,
+          .report-content h3,
+          .report-content h4,
+          .pdf-report h1,
+          .pdf-report h2,
+          .pdf-report h3,
+          .pdf-report h4,
+          .pdf-content h1,
+          .pdf-content h2,
+          .pdf-content h3,
+          .pdf-content h4 {
+            line-height: 1.35 !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            padding-top: 6px !important;
+            padding-bottom: 8px !important;
+            margin-top: 24px !important;
+            margin-bottom: 14px !important;
+          }
+
+          .pdf-page,
+          .pdf-report,
+          .pdf-report * {
+            box-sizing: border-box !important;
+          }
+
+          .pdf-report div,
+          .pdf-report section,
+          .pdf-report article,
+          .pdf-report p,
+          .pdf-report table {
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
+
+          .report-card,
+          .report-card-long,
+          .transit-card,
+          .planet-impact-card,
+          .roadmap-card,
+          .consultation-box,
+          .direct-answer-box {
+            border: 1px solid #e0cda7 !important;
+            border-radius: 10px !important;
+            background: #ffffff !important;
+            padding: 14px 16px !important;
+            margin: 14px 0 18px !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            page-break-inside: auto !important;
+            break-inside: auto !important;
+          }
+
+          .report-card-long {
+            border: none !important;
+            border-radius: 0 !important;
+            padding: 0 !important;
+            margin: 12px 0 16px !important;
+          }
+
+          .pdf-report h1,
+          .pdf-report h2,
+          .pdf-report h3 {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+          }
+
           .pdf-content h1 {
-            margin: 30px 0 20px;
-            padding: 20px 0 12px;
             color: #750606;
             font-size: 22px;
             font-weight: 700;
-            line-height: 1.9;
             break-after: avoid;
             box-sizing: border-box;
-            overflow: visible;
             text-align: center;
             font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
           }
 
           .pdf-content h2 {
-            margin: 18px 0 10px;
-            padding: 14px 0 8px;
             color: #8b0000;
-            font-size: 22px;
-            font-weight: 700;
-            line-height: 1.9;
+            font-size: 18px;
+            font-weight: 900;
             break-after: avoid;
             box-sizing: border-box;
-            overflow: visible;
+            background: #fffaf0 !important;
+            padding: 9px 14px !important;
+            text-align: left !important;
+            border-top: 1px solid #d8c292 !important;
+            border-left: 4px solid #a40000 !important;
+            border-right: none !important;
+            border-bottom: 1px solid #d8c7a0;
+            line-height: 1.3 !important;
             font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
-          }
-
-          .pdf-content h2.part-heading {
-            margin-bottom: 25px;
           }
 
           .pdf-content h3 {
-            margin: 16px 0 10px;
-            padding: 12px 0 8px;
             color: #8b0000;
-            font-size: 22px;
-            font-weight: 700;
-            line-height: 1.9;
+            font-size: 22px !important;
+            line-height: 1.35 !important;
+            font-weight: 800 !important;
             break-after: avoid;
             box-sizing: border-box;
-            overflow: visible;
+            margin: 26px 0 12px !important;
+            padding-bottom: 6px !important;
             font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
           }
 
+          .report-content h3,
+          .pdf-report h3 {
+            font-size: 16px !important;
+            line-height: 1.3 !important;
+            font-weight: 900 !important;
+            color: #8b0000 !important;
+            margin: 14px 0 8px !important;
+            padding-bottom: 0 !important;
+          }
+
           .pdf-content h4 {
-            margin: 16px 0 8px;
-            padding: 10px 0 7px;
             color: #750606;
             font-size: 15px;
             font-weight: 800;
-            line-height: 1.85;
             break-after: avoid;
             font-family: "Ubuntu", "Noto Sans Devanagari", "Mangal", "Nirmala UI", Arial, sans-serif;
           }
@@ -2496,25 +3009,46 @@ export default function Home() {
             padding: 8px 0 10px !important;
             background: transparent !important;
             font-family: "Nirmala UI", "Mangal", "Noto Sans Devanagari", "Arial Unicode MS", "Inter", Arial, sans-serif;
-            font-size: 16px;
-            line-height: 1.95;
+            font-size: 13.5px;
+            line-height: 1.48;
             font-weight: 400;
             text-align: left;
             word-break: normal;
             overflow-wrap: break-word;
-            break-inside: avoid;
+            break-inside: auto;
             box-sizing: border-box;
             overflow: visible;
             white-space: normal;
             orphans: 3;
             widows: 3;
+            margin: 0 0 8px !important;
+          }
+
+          .pdf-report {
+            padding-bottom: 90px !important;
+          }
+
+          .pdf-page-content {
+            padding-bottom: 80px !important;
           }
 
           .pdf-content .bullet {
             margin-left: 14px;
-            font-size: 16px;
-            line-height: 1.95;
+            font-size: 13.5px;
+            line-height: 1.45;
             padding: 7px 0 9px !important;
+          }
+
+          .pdf-content ul {
+            margin-top: 12px;
+            margin-bottom: 20px;
+          }
+
+          .pdf-content li {
+            margin-bottom: 10px;
+            font-size: 13.5px;
+            line-height: 1.45;
+            margin-bottom: 5px !important;
           }
 
           .pdf-content .gap {
@@ -2525,8 +3059,8 @@ export default function Home() {
             height: 0;
             margin: 0;
             padding: 0;
-            break-before: page;
-            page-break-before: always;
+            break-before: auto !important;
+            page-break-before: auto !important;
           }
 
           .force-new-page {
@@ -2540,7 +3074,7 @@ export default function Home() {
           }
         </style>
 
-        <main class="pdf-content pdf-flow" style="width: 794px; background: #fffaf0;">
+        <main class="pdf-content pdf-flow" style="width: 794px; background: #fffdf8;">
           <section class="cover-page">
             <div class="report-hero">
               <h1>Shrivinayaka Astrology</h1>
@@ -2593,7 +3127,7 @@ export default function Home() {
           ${dashaTimelineHtml}
           ${lifeAreaScoresHtml}
           <div class="page-break-before"></div>
-          ${markdownToHtml(keepOnlyLastFinalObservation(formatReportMarkdown(report.report)))}
+          ${normalizePdfReportHtml(wrapReportSections(markdownToHtml(keepOnlyLastFinalObservation(formatReportMarkdown(report.report)))))}
         </main>
       `;
 
@@ -4081,24 +4615,34 @@ export default function Home() {
             <>
           {formData.report_style !== "consultation" && (
             <>
-              <label className="block text-sm font-semibold text-[#5c0000]">
-                Current Concern
-              </label>
+              <div className="space-y-2">
+                <label
+                  htmlFor="current_concern"
+                  className="block text-sm font-semibold text-gray-800"
+                >
+                  Optional Focus Area
+                </label>
+                <p className="text-xs leading-relaxed text-gray-500">
+                  The report covers all aspects of life.
+                  <br />
+                  Choose an area only if you would like extra insights there.
+                </p>
               <select
+                id="current_concern"
                 name="current_concern"
-                value={formData.current_concern}
-                className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
+                value={formData.current_concern || "general"}
                 onChange={handleChange}
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm focus:border-red-700 focus:outline-none focus:ring-1 focus:ring-red-700"
               >
-                <option value="general">General Guidance</option>
+                <option value="general">No specific focus</option>
                 <option value="career">Career</option>
-                <option value="money">Money</option>
-                <option value="relationship">Relationship</option>
-                <option value="marriage">Marriage</option>
+                <option value="finance">Finance</option>
+                <option value="marriage">Marriage / Relationship</option>
                 <option value="health">Health</option>
-                <option value="family">Family</option>
-                <option value="purpose">Purpose</option>
+                <option value="education">Education</option>
+                <option value="spirituality">Spiritual Growth</option>
               </select>
+              </div>
 
             </>
           )}
@@ -4153,6 +4697,38 @@ export default function Home() {
               : `Generate Report - ${getSelectedPrice()}`}
           </button>
 
+          {process.env.NODE_ENV === "development" && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!validateRequiredFields()) {
+                  return;
+                }
+
+                try {
+                  setLoading(true);
+                  setLoadingMessageIndex(6);
+                  await generateReportAfterPayment({
+                        payment_id: "DEV_PAYMENT_TEST",
+                        payment_verified: true,
+                      });
+                    } catch (err) {
+                      console.error("Dev report generation failed:", err);
+                    } finally {
+                  setLoading(false);
+                }
+              }}
+              className="mt-4 rounded-xl bg-black px-6 py-3 font-bold text-white"
+            >
+              Dev: Generate Without Payment
+            </button>
+          )}
+
+          <p className="payment-help-text mt-[10px] text-center text-sm text-[#7a0000]">
+            If payment window does not open, please disable ad blocker for this
+            site or try another browser. For help, contact pt.devji@gmail.com.
+          </p>
+
           {loading && (
             <p className="text-center text-sm text-[#6b4a35]">
               Please wait. Your chart, Dasha and transits are being prepared.
@@ -4164,6 +4740,16 @@ export default function Home() {
               {errorMessage}
             </p>
           )}
+
+          <p className="support-line mt-[14px] text-center text-sm text-[#5a2a00]">
+            If you are getting any issue in generating the report, contact us at{" "}
+            <a
+              href="mailto:pt.devji@gmail.com"
+              className="font-bold text-[#8b0000] underline"
+            >
+              pt.devji@gmail.com
+            </a>
+          </p>
         </div>
         </section>
 
@@ -4309,52 +4895,154 @@ export default function Home() {
                 </h3>
 
                 <div className="max-w-none text-[#2b1b12]">
-                  <ReactMarkdown
-                    components={{
-                      h1: ({ children }) => (
-                        <h1 className="mb-8 mt-2 border-b border-[#d4a017] pb-4 text-4xl font-bold text-[#5c0000]">
-                          {children}
-                        </h1>
-                      ),
-                      h2: ({ children }) => (
-                        <h2 className="mb-4 mt-10 text-2xl font-bold text-[#8b0000]">
-                          {children}
-                        </h2>
-                      ),
-                      h3: ({ children }) => (
-                        <h3 className="mb-3 mt-8 text-xl font-bold text-[#5c0000]">
-                          {children}
-                        </h3>
-                      ),
-                      h4: ({ children }) => (
-                        <h4 className="mb-3 mt-8 text-xl font-bold text-[#5c0000]">
-                          {children}
-                        </h4>
-                      ),
-                      p: ({ children }) => (
-                        <p className="mb-5 text-lg leading-8 text-[#3a281f]">
-                          {children}
-                        </p>
-                      ),
-                      ul: ({ children }) => (
-                        <ul className="mb-5 list-disc space-y-2 pl-6 text-[#3a281f]">
-                          {children}
-                        </ul>
-                      ),
-                      li: ({ children }) => (
-                        <li className="leading-7">
-                          {children}
-                        </li>
-                      ),
-                      strong: ({ children }) => (
-                        <strong className="font-bold text-[#5c0000]">
-                          {children}
-                        </strong>
-                      ),
-                    }}
-                  >
-                    {formatReportMarkdown(report.report)}
-                  </ReactMarkdown>
+                  {(() => {
+                    const markdownWithTimelinePlaceholder = removeAntardashaTimelineText(
+                      formatReportMarkdown(report.report)
+                    ).replace(
+                      "## 14. Antardasha Timeline",
+                      `## 14. Antardasha Timeline\n\n<div class="ANTARDASHA_TABLE_PLACEHOLDER"></div>`
+                    );
+
+                    const {
+                      markdown: browserMarkdown,
+                      cards: browserTransitCards,
+                    } = extractBrowserTransitSection(markdownWithTimelinePlaceholder);
+
+                    return (
+                      <div className="report-content">
+                        {browserMarkdown
+                          .split('<div class="ANTARDASHA_TABLE_PLACEHOLDER"></div>')
+                          .map((part, index, arr) => (
+                            <div key={index}>
+                              {part
+                                .split('<div class="BROWSER_TRANSIT_SECTION_PLACEHOLDER"></div>')
+                                .map((transitPart, transitIndex, transitArr) => (
+                                  <div key={`${index}-${transitIndex}`}>
+                                    <ReactMarkdown
+                                      components={{
+                                        h1: ({ children }) => {
+                                          const headingText = getChildrenText(children);
+
+                                          if (/^PART\s+[12]\s*-/i.test(headingText)) {
+                                            return (
+                                              <h1 className="my-9 border-y-2 border-[#d4af37] px-0 py-[14px] text-center text-[34px] font-black leading-[1.35] text-[#8b0000]">
+                                                {children}
+                                              </h1>
+                                            );
+                                          }
+
+                                          return (
+                                            <h1 className="mb-8 mt-2 border-b border-[#d4a017] pb-4 text-4xl font-bold text-[#5c0000]">
+                                              {children}
+                                            </h1>
+                                          );
+                                        },
+                                        h2: ({ children }) => (
+                                          <h2 className="mb-[18px] mt-10 border-b border-[#d8c7a0] pb-[14px] text-2xl font-bold text-[#8b0000]">
+                                            {children}
+                                          </h2>
+                                        ),
+                                        h3: ({ children }) => (
+                                          <h3 className="mb-[12px] mt-[26px] pb-[6px] text-[22px] font-bold leading-[1.35] text-[#8b0000]">
+                                            {children}
+                                          </h3>
+                                        ),
+                                        h4: ({ children }) => (
+                                          <h4 className="mb-3 ml-[12px] mt-8 text-[21px] font-bold leading-[1.3] text-[#8b0000]">
+                                            {children}
+                                          </h4>
+                                        ),
+                                        p: ({ children }) => (
+                                          (() => {
+                                            const paragraphText = getChildrenText(children);
+
+                                            if (/^\(?\s*Approx\.\s*\d+\s+words\s*\)?$/i.test(paragraphText)) {
+                                              return null;
+                                            }
+
+                                            return (
+                                              <p className="mb-[18px] text-lg leading-8 text-[#3a281f]">
+                                                {children}
+                                              </p>
+                                            );
+                                          })()
+                                        ),
+                                        ul: ({ children }) => (
+                                          <ul className="mb-5 mt-3 list-disc pl-6 text-[#3a281f]">
+                                            {children}
+                                          </ul>
+                                        ),
+                                        li: ({ children }) => (
+                                          <li className="mb-[10px] text-lg leading-8 text-[#3a281f]">
+                                            {children}
+                                          </li>
+                                        ),
+                                        strong: ({ children }) => (
+                                          <strong className="font-bold text-[#5c0000]">
+                                            {children}
+                                          </strong>
+                                        ),
+                                      }}
+                                    >
+                                      {transitPart}
+                                    </ReactMarkdown>
+
+                                    {transitIndex < transitArr.length - 1 && (
+                                      <section className="mb-10 mt-4">
+                                        {browserTransitCards.map((card) => (
+                                          <div key={card.title} className="mb-8">
+                                            <h3 className="mb-4 text-[22px] font-bold leading-[1.35] text-[#8b0000]">
+                                              {card.title}
+                                            </h3>
+
+                                            <div className="rounded-xl border border-[#ead8b8] bg-white px-4 py-3 shadow-sm">
+                                              {card.blocks.map((block) => (
+                                                <div key={`${card.title}-${block.heading}`} className="mb-5 last:mb-0">
+                                                  {block.heading !== "Details" &&
+                                                    (/from\s+Moon$/i.test(block.heading) ? (
+                                                      <h3 className="mb-[12px] mt-[26px] pb-[6px] text-[22px] font-bold leading-[1.35] text-[#8b0000]">
+                                                        {block.heading}
+                                                      </h3>
+                                                    ) : (
+                                                      <h4 className="mb-2 ml-[12px] border-b border-[#d4a017] pb-1 text-[21px] font-bold leading-[1.3] text-[#8b0000]">
+                                                        {block.heading}
+                                                      </h4>
+                                                    ))}
+
+                                                  {block.paragraphs.map((paragraph, paragraphIndex) => (
+                                                    /^\(?\s*Approx\.\s*\d+\s+words\s*\)?$/i.test(paragraph) ? null : (
+                                                      <p
+                                                        key={`${card.title}-${block.heading}-${paragraphIndex}`}
+                                                        className="mb-3 text-lg leading-8 text-[#3a281f] last:mb-0"
+                                                      >
+                                                        {paragraph}
+                                                      </p>
+                                                    )
+                                                  ))}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </section>
+                                    )}
+                                  </div>
+                                ))}
+
+                              {index < arr.length - 1 && (
+                                <AntardashaTimelineTable
+                                  rows={
+                                    report.upcoming_antardasha_rows ||
+                                    report.next_antardasha_rows ||
+                                    report.antardasha_timeline
+                                  }
+                                />
+                              )}
+                            </div>
+                          ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -4372,6 +5060,13 @@ export default function Home() {
                   className="rounded-xl bg-[#8b0000] px-5 py-3 font-bold text-white hover:bg-[#5c0000] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {pdfLoading ? "Downloading..." : "Download PDF"}
+                </button>
+
+                <button
+                  onClick={() => downloadProfessionalReport(report)}
+                  className="rounded-lg bg-green-600 px-4 py-2 text-white"
+                >
+                  Test New PDF
                 </button>
               </div>
 
@@ -4407,29 +5102,31 @@ export default function Home() {
               Check sample PDF reports before ordering your personalized report.
             </p>
 
-            <div className="mt-8 grid gap-6 md:grid-cols-3">
-              {sampleReports.map((sample) => (
-                <a
-                  key={sample.title}
-                  href={sample.file}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-2xl border border-[#ead8b8] bg-white p-6 shadow-md transition hover:-translate-y-1 hover:border-[#8b0000]"
-                >
-                  <h3 className="text-xl font-bold text-[#8b0000]">
-                    {sample.title}
-                  </h3>
+            {isClient && (
+              <div className="mt-8 grid gap-6 md:grid-cols-3">
+                {sampleReports.map((sample) => (
+                  <a
+                    key={sample.title}
+                    href={sample.file}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-2xl border border-[#ead8b8] bg-white p-6 shadow-md transition hover:-translate-y-1 hover:shadow-lg"
+                  >
+                    <h3 className="text-xl font-bold text-[#8b0000]">
+                      {sample.title}
+                    </h3>
 
-                  <p className="mt-3 text-[#6b4a35]">
-                    {sample.desc}
-                  </p>
+                    <p className="mt-3 text-sm leading-6 text-[#6b4a35]">
+                      {sample.desc}
+                    </p>
 
-                  <span className="mt-5 inline-block rounded-full bg-[#8b0000] px-4 py-2 text-sm font-bold text-white">
-                    View Sample PDF
-                  </span>
-                </a>
-              ))}
-            </div>
+                    <span className="mt-5 inline-block rounded-full bg-[#8b0000] px-5 py-2 text-sm font-bold text-white">
+                      View Sample
+                    </span>
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
@@ -4489,6 +5186,40 @@ export default function Home() {
             Disclaimer: Astrology reports are for guidance, reflection and personal insight only. They do not guarantee events and should not replace medical, legal, financial or mental health advice.
           </p>
         </section>
+
+        <style jsx global>{`
+          .report-table-wrap {
+            margin: 18px 0 34px;
+            overflow-x: auto;
+          }
+
+          .report-table {
+            width: 100%;
+            border-collapse: collapse;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #fff;
+            border: 1px solid #ead8b8;
+          }
+
+          .report-table th {
+            background: #a40000;
+            color: #fff;
+            text-align: left;
+            padding: 14px 16px;
+            font-weight: 800;
+          }
+
+          .report-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid #ead8b8;
+            font-weight: 600;
+          }
+
+          .report-table tr:nth-child(even) td {
+            background: #fff7e8;
+          }
+        `}</style>
       </div>
     </main>
   );

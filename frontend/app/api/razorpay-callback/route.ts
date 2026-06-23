@@ -125,7 +125,7 @@ function callbackPage(params: URLSearchParams) {
           "Reviewing the current Antardasha...",
           "Mapping present planetary transits...",
           "Generating your personalized report...",
-          "Your report is ready."
+          "Your report is getting ready."
         ];
         var messageIndex = 0;
         var messageInterval = window.setInterval(function () {
