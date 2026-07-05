@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:pdf-fonts": "node scripts/build-pdf-fonts.cjs",
     "start": "next start",
     "lint": "eslint"
   },

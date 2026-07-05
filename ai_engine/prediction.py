@@ -30,6 +30,216 @@ DASHA_YEARS = {
 }
 
 
+def ordinal(n: int) -> str:
+    try:
+        n = int(n)
+    except Exception:
+        return str(n)
+
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def get_transit_house(transits: dict, planet: str, key: str, default: int = None) -> int:
+    if not isinstance(transits, dict):
+        raise ValueError("transits must be a dict")
+
+    planet_container = transits.get("transits", transits)
+    data = planet_container.get(planet)
+
+    if not isinstance(data, dict):
+        data = planet_container.get(planet.lower())
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Transit data missing for planet: {planet}. "
+            f"Available top keys: {list(transits.keys())}. "
+            f"Available planet keys: {list(planet_container.keys()) if isinstance(planet_container, dict) else 'NA'}"
+        )
+
+    possible_keys = []
+
+    if key == "house_from_asc":
+        possible_keys = [
+            "house_from_ascendant",
+            "house_from_asc",
+            "houseFromAsc",
+            "from_asc",
+            "fromAsc",
+            "asc_house",
+            "ascHouse",
+            "house",
+            "house_number",
+            "houseNumber",
+            "house_from_lagna",
+            "houseFromLagna",
+            "from_lagna",
+            "fromLagna",
+        ]
+
+    elif key == "house_from_moon":
+        possible_keys = [
+            "house_from_moon",
+            "houseFromMoon",
+            "from_moon",
+            "fromMoon",
+            "moon_house",
+            "moonHouse",
+            "house_from_chandra",
+            "houseFromChandra",
+            "from_chandra",
+            "fromChandra",
+        ]
+
+    else:
+        possible_keys = [key, key.replace("_", "")]
+
+    for k in possible_keys:
+        value = data.get(k)
+
+        if value is not None and value != "":
+            try:
+                return int(value)
+            except Exception:
+                pass
+
+    sign = data.get("sign") or data.get("rashi") or data.get("sign_name")
+
+    asc_sign = (
+        transits.get("ascendant")
+        or transits.get("asc_sign")
+        or transits.get("lagna")
+        or transits.get("ascendant_sign")
+    )
+
+    moon_sign = (
+        transits.get("moon_sign")
+        or transits.get("moon")
+        or transits.get("chandra")
+        or transits.get("moon_rashi")
+    )
+
+    SIGNS = [
+        "Aries", "Taurus", "Gemini", "Cancer",
+        "Leo", "Virgo", "Libra", "Scorpio",
+        "Sagittarius", "Capricorn", "Aquarius", "Pisces"
+    ]
+
+    def calc_house(transit_sign, ref_sign):
+        if not transit_sign or not ref_sign:
+            return None
+
+        transit_sign = str(transit_sign).strip().title()
+        ref_sign = str(ref_sign).strip().title()
+
+        if transit_sign not in SIGNS or ref_sign not in SIGNS:
+            return None
+
+        return ((SIGNS.index(transit_sign) - SIGNS.index(ref_sign)) % 12) + 1
+
+    if key == "house_from_asc":
+        calculated = calc_house(sign, asc_sign)
+        if calculated:
+            return calculated
+
+    if key == "house_from_moon":
+        calculated = calc_house(sign, moon_sign)
+        if calculated:
+            return calculated
+
+    raise ValueError(
+        f"Could not find {key} for {planet}. Planet data: {data}. Transit keys: {list(transits.keys())}"
+    )
+
+
+def build_current_transit_required_format(transits: dict) -> str:
+    saturn_asc = get_transit_house(transits, "Saturn", "house_from_asc")
+    saturn_moon = get_transit_house(transits, "Saturn", "house_from_moon")
+
+    jupiter_asc = get_transit_house(transits, "Jupiter", "house_from_asc")
+    jupiter_moon = get_transit_house(transits, "Jupiter", "house_from_moon")
+
+    rahu_asc = get_transit_house(transits, "Rahu", "house_from_asc")
+    rahu_moon = get_transit_house(transits, "Rahu", "house_from_moon")
+
+    ketu_asc = get_transit_house(transits, "Ketu", "house_from_asc")
+    ketu_moon = get_transit_house(transits, "Ketu", "house_from_moon")
+
+    return f"""
+IMPORTANT:
+Use ONLY the calculated transit houses provided in the headings below.
+Do NOT copy example house numbers.
+Do NOT assume transit houses.
+Do NOT change Jupiter, Saturn, Rahu or Ketu house numbers.
+The headings must remain exactly as written below.
+
+Required format:
+
+### Saturn in {ordinal(saturn_asc)} House
+#### Saturn Impact
+[one short practical line]
+
+#### Impact from Ascendant
+Explain result from Ascendant.
+
+#### Saturn in {ordinal(saturn_moon)} House from Moon
+
+#### Impact from Moon
+Explain emotional/mental result from Moon.
+
+#### Practical Advice
+Give practical advice for the next 6-12 months.
+
+### Jupiter in {ordinal(jupiter_asc)} House
+#### Jupiter Impact
+[one short practical line]
+
+#### Impact from Ascendant
+Explain result from Ascendant.
+
+#### Jupiter in {ordinal(jupiter_moon)} House from Moon
+
+#### Impact from Moon
+Explain emotional/mental result from Moon.
+
+#### Practical Advice
+Give practical advice for the next 6-12 months.
+
+### Rahu in {ordinal(rahu_asc)} House
+#### Rahu Impact
+[one short practical line]
+
+#### Impact from Ascendant
+Explain result from Ascendant.
+
+#### Rahu in {ordinal(rahu_moon)} House from Moon
+
+#### Impact from Moon
+Explain emotional/mental result from Moon.
+
+#### Practical Advice
+Give practical advice for the next 6-12 months.
+
+### Ketu in {ordinal(ketu_asc)} House
+#### Ketu Impact
+[one short practical line]
+
+#### Impact from Ascendant
+Explain result from Ascendant.
+
+#### Ketu in {ordinal(ketu_moon)} House from Moon
+
+#### Impact from Moon
+Explain emotional/mental result from Moon.
+
+#### Practical Advice
+Give practical advice for the next 6-12 months.
+"""
+
+
 def get_current_dasha(dasha_data):
     today = datetime.today().date()
 
@@ -243,6 +453,64 @@ def contains_devanagari(text):
 
 def normalize_heading_key(text):
     return re.sub(r"\s+", " ", text.strip().strip(":")).casefold()
+
+
+def clean_report_text(text: str) -> str:
+    if not text:
+        return ""
+
+    text = str(text)
+
+    text = re.sub(r"^\s*#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = text.replace("####", "")
+    text = text.replace("###", "")
+    text = text.replace("##", "")
+    text = text.replace("#", "")
+
+    text = re.sub(r"\n\s*-\s*", "\n- ", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.strip()
+
+
+def extract_part2_sections(raw_text: str) -> dict:
+    raw_text = clean_report_text(raw_text)
+
+    section_titles = [
+        "Brief Chart Summary",
+        "Factors Relevant To Question",
+        "Current Dasha Impact",
+        "Current Transit Impact",
+        "Direct Answer to Your Question",
+        "Overall Assessment",
+        "Time Period",
+        "Practical Advice",
+        "Final Observation",
+    ]
+
+    result = {}
+
+    pattern = "|".join(re.escape(t) for t in section_titles)
+    matches = list(re.finditer(rf"({pattern})", raw_text, flags=re.IGNORECASE))
+
+    for i, match in enumerate(matches):
+        title = match.group(1).strip()
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(raw_text)
+        body = raw_text[start:end].strip()
+        body = clean_report_text(body)
+
+        for fixed in section_titles:
+            if fixed.lower() == title.lower():
+                title = fixed
+                break
+
+        if body:
+            result[title] = body
+
+    return result
 
 
 ENGLISH_HEADING_REPLACEMENTS = {
@@ -519,14 +787,29 @@ def generate_full_prediction(
     user_context=None,
     report_style="full"
 ):
-    report_type = report_type.lower().strip()
+    selected_report_type = report_type.lower().strip()
     language = language.lower().strip()
     report_style = report_style.lower().strip()
+
+    if selected_report_type == "complete":
+        report_type = "premium"
+        report_style = "full"
+    elif selected_report_type == "complete_with_question":
+        report_type = "premium"
+        report_style = "full_plus_consultation"
+    else:
+        report_type = selected_report_type
 
     if user_context is None:
         user_context = {}
 
-    question = user_context.get("main_question")
+    personal_question = (
+        user_context.get("personal_question")
+        or user_context.get("question")
+        or user_context.get("main_question")
+        or ""
+    )
+    question = personal_question or user_context.get("main_question")
     translated_question = translate_question_for_report(question, language)
     if translated_question:
         user_context = {
@@ -536,6 +819,15 @@ def generate_full_prediction(
         }
 
     current_dasha = get_current_dasha(chart_data["dasha"])
+    transits = chart_data.get("transits") or {}
+    print("===== TRANSITS RAW DEBUG =====")
+    print(transits)
+    print("===== TRANSIT HOUSE DEBUG =====")
+    planet_container = transits.get("transits", transits) if isinstance(transits, dict) else {}
+    for p in ["Saturn", "Jupiter", "Rahu", "Ketu"]:
+        print(p, planet_container.get(p))
+    print("================================")
+    current_transit_required_format = build_current_transit_required_format(transits)
     upcoming_antardasha_rows = get_upcoming_antardasha_rows(
         chart_data,
         current_dasha,
@@ -1002,67 +1294,7 @@ Do this for all four planets:
 - Rahu
 - Ketu
 
-Required format:
-
-### Saturn in 10th House
-#### Saturn Impact
-[one short practical line]
-
-#### Impact from Ascendant
-Explain result from Ascendant.
-
-#### Saturn in 12th House from Moon
-
-#### Impact from Moon
-Explain emotional/mental result from Moon.
-
-#### Practical Advice
-Give practical advice for the next 6-12 months.
-
-### Jupiter in 1st House
-#### Jupiter Impact
-[one short practical line]
-
-#### Impact from Ascendant
-Explain result from Ascendant.
-
-#### Jupiter in 3rd House from Moon
-
-#### Impact from Moon
-Explain emotional/mental result from Moon.
-
-#### Practical Advice
-Give practical advice for the next 6-12 months.
-
-### Rahu in 9th House
-#### Rahu Impact
-[one short practical line]
-
-#### Impact from Ascendant
-Explain result from Ascendant.
-
-#### Rahu in 11th House from Moon
-
-#### Impact from Moon
-Explain emotional/mental result from Moon.
-
-#### Practical Advice
-Give practical advice for the next 6-12 months.
-
-### Ketu in 3rd House
-#### Ketu Impact
-[one short practical line]
-
-#### Impact from Ascendant
-Explain result from Ascendant.
-
-#### Ketu in 5th House from Moon
-
-#### Impact from Moon
-Explain emotional/mental result from Moon.
-
-#### Practical Advice
-Give practical advice for the next 6-12 months.
+{current_transit_required_format}
 
 Do not skip Moon-based placement for any planet.
 Do not skip Ascendant-based placement for any planet.
@@ -1078,6 +1310,9 @@ or
 
 Instead always use heading format:
 "Planet in Xth House from Moon"
+
+Do not change the calculated transit house numbers in the provided headings.
+Do not replace them with guessed or copied example numbers.
 
 Do not display technical labels like:
 "House from Ascendant: 10"
@@ -1230,16 +1465,20 @@ Period:
 Prediction:
 Advice:
 
-## 16. Practical Remedies & Alignment Advice
-Give safe and practical remedies:
-- discipline habits
-- meditation/mantra
-- donation/charity
-- spiritual practices
-- emotional healing suggestions
-- lifestyle improvements
+## 16. General Lal Kitab Remedies
+Give 5-7 simple, safe and affordable Lal Kitab style remedies based on:
+- Lagna
+- Moon sign
+- current Mahadasha
+- current Antardasha
+- current Saturn/Jupiter/Rahu/Ketu transits
 
-Avoid superstition and fear-based remedies.
+Rules:
+- No gemstones.
+- No expensive rituals.
+- No fear-based predictions.
+- No guaranteed claims.
+- Remedies should be practical and easy for Indian users.
 
 ## 17. Final Guidance
 End with:
@@ -1528,230 +1767,97 @@ AVOID:
 """
 
         consultation_report_instruction = f"""
-Write a focused personal consultation analysis that answers the user's main question.
+You are preparing PART 2: PERSONAL QUESTION ANALYSIS.
 
-IMPORTANT:
-The user has paid for analysis of ONE primary question.
+Important rules:
+- Do not repeat the full astrology report.
+- Focus only on the user's personal question or selected concern.
+- Use chart factors only when they directly support the answer.
+- Do not use vague generic lines.
+- Do not use markdown symbols like #### or ### inside the final text.
+- Keep the tone practical, clear and reassuring.
+- Write in the selected report language.
+- Include Lal Kitab style remedies that are safe, simple and non-harmful.
+- Do not recommend gemstones, expensive rituals, or medical/legal/financial guarantees.
+- Remedies should be practical and traditional, but clearly supportive, not guaranteed cures.
 
-Keep the personal consultation focused and concise.
+User Question:
+{personal_question or "No specific question entered. Give a general personal focus analysis based on the strongest current life concern."}
 
-Consultation Section Rules:
-Maximum 4 pages.
+Required PART 2 format:
 
-Keep Brief Chart Summary under 120 words.
+PART 2 - Personal Question Analysis
 
-Keep Transit Impact under 200 words.
+Brief Chart Summary
+Write a detailed 400-600 word summary focused on the user's current life situation.
+Include Ascendant, Moon sign, Nakshatra, Mahadasha, Antardasha, and current transit context.
+Do not repeat all 12 life areas. Keep it focused and consultation-like.
 
-Avoid repeating information already explained in Complete Astrology Report.
+Factors Relevant To Question
+Explain only the chart factors relevant to the user's question.
+Mention:
+- relevant houses
+- current Mahadasha
+- current Antardasha
+- Saturn, Jupiter, Rahu and Ketu transit relevance
+- emotional/mental pattern if relevant
 
-Brief Chart Summary:
-Maximum 120 words.
+Current Mahadasha Impact
+Explain the current Mahadasha in relation to the user's question.
+Minimum 180-250 words.
 
-Analyze only planets, houses, dasha and transits directly connected to the user's first question.
+Current Antardasha Impact
+Explain the current Antardasha in relation to the user's question.
+Minimum 180-250 words.
 
-Do not write full personality, marriage, career, finance or health sections unless directly relevant to the question.
+Combined Dasha Effect
+Explain how Mahadasha and Antardasha are working together.
+Mention whether the period gives support, delay, confusion, growth, pressure, or opportunity.
+Minimum 180-250 words.
 
-If multiple questions appear, identify the first major question and answer only that question.
-Do not attempt to answer every question.
-Ignore secondary questions.
+Current Transit Impact
 
-For the personal consultation Direct Answer section, use headings based on Report Language.
+Saturn Impact
+Explain Saturn's current impact on the question.
+Minimum 120-180 words.
 
-English reports must use English headings and English body text.
-Hindi reports must use Hindi headings and simple Hindi body text.
-Hinglish reports must use Hinglish headings and easy Hinglish body text.
+Jupiter Impact
+Explain Jupiter's current impact on the question.
+Minimum 120-180 words.
 
-Use this format exactly:
+Rahu Impact
+Explain Rahu's current impact on the question.
+Minimum 120-180 words.
 
-## PART 2 - Personal Consultation Analysis
+Ketu Impact
+Explain Ketu's current impact on the question.
+Minimum 120-180 words.
 
-## Brief Chart Summary
-Give only the chart factors directly relevant to the user's question.
-
-## Factors Relevant To Question
-Analyze the houses, planets and chart indicators connected to the question.
-
-Examples:
-- Mother health: 4th house, Moon, relevant house lord, current timing
-- Court case: 6th house, 8th house, Mars, Saturn, current timing
-- Job/career: 10th house, 6th house, Saturn, Sun, current timing
-- Marriage: 7th house, Venus/Jupiter, 2nd house, 11th house, current timing
-- Money: 2nd house, 11th house, 10th house, Jupiter, current timing
-
-## Current Dasha Impact
-Explain how ONLY the current Mahadasha affects the user's question.
-
-Current Mahadasha:
-{current_dasha["planet"]} Mahadasha
-{current_dasha["start"]} to {current_dasha["end"]}
-
-## Current Transit Impact
-Mention ONLY the 2-3 most relevant transit factors connected directly to the user's question.
-
-Do NOT repeat the full transit analysis already given in the Complete Astrology Report.
-
-Keep this section under 200 words.
-
-Use planet-specific headings instead of repeating "Main Effect".
-
-For Current Transit Impact section:
-
-Use ONLY English subheadings:
-
-### Saturn Impact
-### Jupiter Impact
-### Rahu Impact
-### Ketu Impact
-
-Do not repeat the same heading twice.
-Do not translate these headings into Hindi.
-Do not write "शनि प्रभाव", "गुरु प्रभाव", "राहु प्रभाव", or "केतु प्रभाव".
-Do not repeat planet impact headings.
-Do not translate the impact heading separately.
-After each heading, write one short paragraph only.
-For Hindi reports, keep the heading in English and write the paragraph in Hindi.
-
-Only include planets that are directly relevant to the question.
-
-Do not write "Main Effect" repeatedly in the Personal Consultation section.
-
-## Direct Answer
-Format exactly like this:
+Direct Answer To Your Question
 
 Your Question
+Repeat the user's question clearly.
 
-[Rewrite the user's question in clear language]
+Brief Answer
+Give a direct answer in 5-8 lines.
 
-Direct Answer
+Best Time Period
+Give practical timing windows.
+Mention near-term, medium-term and stronger period if visible.
 
-[Provide the answer]
+Practical Advice
+Give 6-8 practical action points.
+Make them specific to the question.
 
-Overall Assessment
+Lal Kitab Remedies
+Give 5-7 safe Lal Kitab style remedies based on the question, Mahadasha, Antardasha and transits.
+Keep remedies simple and affordable.
+Avoid fear-based language.
+Avoid extreme promises.
 
-Choose one:
-- Strongly Favorable
-- Moderately Favorable
-- Mixed but Improving
-- Caution Needed
-
-Do not use "Probability Level".
-
-Do not skip the question.
-
-Always display both:
-- User Question
-- Direct Answer
-- Overall Assessment
-
-They must be in separate paragraphs.
-
-Leave one blank line between them.
-
-For Hindi reports, format exactly:
-
-आपका प्रश्न
-
-[यूज़र के प्रश्न को साफ और सरल भाषा में दोहराएं]
-
-सीधा उत्तर
-
-[उत्तर]
-
-दोनों को अलग-अलग पैराग्राफ में दिखाएं।
-
-प्रश्न और उत्तर एक ही लाइन में न लिखें।
-
-Never start the Direct Answer section with the answer itself.
-
-Always display the question first, then the answer.
-
-IMPORTANT OVERRIDE FOR HINDI REPORTS:
-Ignore the Hindi heading labels shown above.
-Use English headings only:
-Your Question
-Direct Answer
-Overall Assessment
-
-Write the question and answer body in Hindi.
-
-FINAL OVERRIDE FOR DIRECT ANSWER SECTION:
-Ignore any older Direct Answer heading examples above if they conflict with this rule.
-
-If the user has asked a specific question, create the section title and sub-headings based on Report Language.
-
-For English report, use exactly:
-
-### Direct Answer to Your Question
-
-### Your Question
-
-### Brief Answer
-
-### What the Chart Indicates
-
-### Possible Time Period
-
-### Practical Advice
-
-For Hindi report, use exactly:
-
-### आपके प्रश्न का सीधा उत्तर
-
-### आपका प्रश्न
-
-### संक्षिप्त उत्तर
-
-### कुंडली क्या संकेत देती है
-
-### संभावित समय अवधि
-
-### व्यावहारिक सलाह
-
-For Hinglish report, use exactly:
-
-### Aapke Sawal Ka Seedha Jawaab
-
-### Aapka Sawal
-
-### Short Answer
-
-### Kundli Kya Sanket Deti Hai
-
-### Sambhavit Samay
-
-### Practical Advice
-
-Do not mix languages in headings.
-
-If report language is English, all headings and body text must be in English.
-
-If report language is Hindi, headings and body text must be in simple Hindi.
-
-If report language is Hinglish, headings should be Hinglish and body should be easy Hinglish.
-
-Do not use numbering.
-
-Do not write:
-1)
-2)
-3)
-
-Under "Your Question", rewrite and repeat the user's question in a clean, professional way.
-
-Do not copy the user's raw question word-for-word if it sounds informal, emotional, unstructured or grammatically rough.
-
-## Time Period
-Give realistic timing tendencies if applicable. Avoid guaranteed dates.
-
-## Practical Advice
-Give practical steps the user can take in this situation.
-
-## Final Observation
-End with a clear astrologer's final observation.
-
-The final observation should feel like a grounded verdict, not motivation and not a confidence score.
+Final Observation
+Give a strong closing consultation summary in 180-250 words.
 """
-
         if report_style == "full":
             report_instruction = (
                 complete_report_instruction
@@ -1769,7 +1875,7 @@ Write a complete paid report that feels like two separate products in one.
 
 Use this title:
 
-# Complete Astrology Report + Personal Consultation
+# Complete Astrology Report + Personal Question Analysis
 
 First write:
 
@@ -2249,6 +2355,14 @@ Use clear, emotionally intelligent language.
 No fear-based prediction.
 No guaranteed claims.
 """
+
+    print("===== CURRENT TRANSIT PROMPT DEBUG =====")
+    print("Saturn:", transits.get("Saturn"))
+    print("Jupiter:", transits.get("Jupiter"))
+    print("Rahu:", transits.get("Rahu"))
+    print("Ketu:", transits.get("Ketu"))
+    print(current_transit_required_format)
+    print("=======================================")
 
     try:
         print("OPENAI MAIN REPORT REQUEST STARTING")

@@ -44,6 +44,29 @@ const sampleReports = [
   },
 ];
 
+const REPORT_OPTIONS = [
+  {
+    id: "complete",
+    title: "Complete Astrology Report",
+    price: 75,
+    oldPrice: 199,
+    badge: "Launch Offer",
+    description:
+      "Detailed birth chart, Dasha, transit, career, finance, marriage, health and future life trends.",
+    includesQuestion: false,
+  },
+  {
+    id: "complete_with_question",
+    title: "Complete Astrology Report + Personal Question Analysis",
+    price: 99,
+    oldPrice: 299,
+    badge: "Recommended",
+    description:
+      "Everything in Complete Astrology Report plus focused answer to your personal question with timing, guidance and remedies.",
+    includesQuestion: true,
+  },
+] as const;
+
 type ChartPlanet = {
   sign: string;
   sign_index: number;
@@ -145,12 +168,20 @@ type ReportData = {
 };
 
 const getReportStyleLabel = (style: string) => {
+  if (style === "complete_with_question") {
+    return "Complete Astrology Report + Personal Question Analysis";
+  }
+  if (style === "complete") return "Complete Astrology Report";
   if (style === "consultation") return "Personal Consultation Report";
   if (style === "full_plus_consultation") return "Complete Astrology + Consultation Report";
   return "Complete Astrology Report";
 };
 
 const getCoverTitle = (style: string) => {
+  if (style === "complete_with_question") {
+    return "Complete Astrology Report + Personal Question Analysis";
+  }
+  if (style === "complete") return "Complete Astrology Report";
   if (style === "consultation") return "Personal Consultation Report";
   if (style === "full_plus_consultation") {
     return "Complete Astrology + Consultation Report";
@@ -567,14 +598,18 @@ export default function Home() {
     latitude: "",
     longitude: "",
     use_manual_coordinates: false,
-    report_type: "premium",
+    report_type: "complete_with_question",
     report_style: "full_plus_consultation",
     language: "english",
-    current_concern: "general",
+    current_concern: "personal_question",
     employment_status: "not_selected",
     relationship_status: "not_selected",
     main_question: "",
+    personal_question: "",
   });
+  const [selectedReportType, setSelectedReportType] = useState<
+    "complete" | "complete_with_question"
+  >("complete_with_question");
 
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -640,8 +675,32 @@ export default function Home() {
   }, [report]);
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
   ) => {
+    if (e.target.name === "report_type") {
+      const nextType =
+        e.target.value === "complete_with_question"
+          ? "complete_with_question"
+          : "complete";
+
+      setSelectedReportType(nextType);
+      setFormData((prev) => ({
+        ...prev,
+        report_type: nextType,
+        report_style:
+          nextType === "complete_with_question"
+            ? "full_plus_consultation"
+            : "full",
+        current_concern:
+          nextType === "complete_with_question"
+            ? "personal_question"
+            : "general",
+      }));
+      return;
+    }
+
     setFormData((prev) => ({
       ...prev,
       [e.target.name]: e.target.value,
@@ -818,16 +877,6 @@ export default function Home() {
       return false;
     }
 
-    const needsQuestion =
-      formData.report_type === "premium" &&
-      (formData.report_style === "consultation" ||
-        formData.report_style === "full_plus_consultation");
-
-    if (needsQuestion && !formData.main_question.trim()) {
-      alert("Please enter your question for the consultation report.");
-      return false;
-    }
-
     return true;
   };
 
@@ -838,12 +887,26 @@ export default function Home() {
   ) => {
     const hasCoordinates =
       formData.latitude.trim() !== "" && formData.longitude.trim() !== "";
+    const normalizedReportType =
+      reportType === "complete_with_question"
+        ? "complete_with_question"
+        : "complete";
+    const includePersonalQuestion =
+      normalizedReportType === "complete_with_question";
+    const mappedReportStyle = includePersonalQuestion
+      ? "full_plus_consultation"
+      : "full";
+    const personalQuestion = formData.personal_question || "";
 
     return {
       ...formData,
       birth_date: formatDateForBackend(getBirthDateForBackend()),
-      report_type: reportType,
-      current_concern: formData.current_concern || "general",
+      report_type: normalizedReportType,
+      report_style: mappedReportStyle,
+      include_personal_question: includePersonalQuestion,
+      personal_question: personalQuestion,
+      main_question: includePersonalQuestion ? personalQuestion : "",
+      current_concern: includePersonalQuestion ? "personal_question" : "general",
       payment_token: paymentToken,
       payment_id: razorpayPaymentId,
       latitude: hasCoordinates ? Number(formData.latitude) : null,
@@ -870,6 +933,15 @@ export default function Home() {
         { timeout: 900000 }
       );
 
+      console.log("FULL REPORT RESPONSE:", response.data);
+      console.log("PART 2 KEYS CHECK:", {
+        consultation: response.data?.consultation,
+        consultation_analysis: response.data?.consultation_analysis,
+        part2: response.data?.part2,
+        personal_consultation: response.data?.personal_consultation,
+        part2_text: response.data?.part2_text,
+      });
+      console.log("REPORT OBJECT KEYS:", Object.keys(response.data || {}));
       console.log("REPORT RESPONSE:", response.data);
       setReport(response.data);
     } catch (error) {
@@ -892,7 +964,7 @@ export default function Home() {
     const payload = savedPayload
       ? {
           ...savedPayload,
-          report_type: "premium",
+          report_type: savedPayload.report_type || formData.report_type,
           current_concern: savedPayload.current_concern || "general",
           payment_token: paymentToken,
           payment_id: razorpayPaymentId,
@@ -901,7 +973,7 @@ export default function Home() {
           payment_verified: paymentData?.payment_verified === true,
         }
       : {
-          ...buildReportPayload("premium", paymentToken, razorpayPaymentId),
+          ...buildReportPayload(formData.report_type, paymentToken, razorpayPaymentId),
           order_id: paymentData?.order_id,
           signature: paymentData?.signature,
           payment_verified: paymentData?.payment_verified === true,
@@ -920,6 +992,15 @@ export default function Home() {
         { timeout: 900000 }
       );
 
+      console.log("FULL REPORT RESPONSE:", response.data);
+      console.log("PART 2 KEYS CHECK:", {
+        consultation: response.data?.consultation,
+        consultation_analysis: response.data?.consultation_analysis,
+        part2: response.data?.part2,
+        personal_consultation: response.data?.personal_consultation,
+        part2_text: response.data?.part2_text,
+      });
+      console.log("REPORT OBJECT KEYS:", Object.keys(response.data || {}));
       console.log("REPORT RESPONSE:", response.data);
       setReport(response.data);
       window.sessionStorage.removeItem(PENDING_REPORT_PAYLOAD_KEY);
@@ -1068,24 +1149,20 @@ export default function Home() {
       return;
     }
 
-    if (formData.report_type.toLowerCase().trim() === "premium") {
-      await generatePremiumReport();
-      return;
-    }
-
-    await sendReport();
+    await generatePremiumReport();
   };
 
   const generatePremiumReport = async () => {
     console.log("PREMIUM REPORT STARTED");
     try {
       setLoading(true);
-      const pendingPayload = buildReportPayload("premium");
+      const pendingPayload = buildReportPayload(selectedReportType);
 
       const orderResponse = await axios.post(
         `${API_BASE_URL}/create-payment-order`,
         {
-          report_style: formData.report_style,
+          report_type: pendingPayload.report_type,
+          report_style: pendingPayload.report_style,
           payload: pendingPayload,
         },
         {
@@ -4060,11 +4137,25 @@ export default function Home() {
   };
 
   const choosePremiumReport = (reportStyle: string) => {
-    setFormData({
-      ...formData,
-      report_type: "premium",
-      report_style: reportStyle,
-    });
+    const nextType =
+      reportStyle === "complete_with_question" ||
+      reportStyle === "full_plus_consultation"
+        ? "complete_with_question"
+        : "complete";
+
+    setSelectedReportType(nextType);
+    setFormData((prev) => ({
+      ...prev,
+      report_type: nextType,
+      report_style:
+        nextType === "complete_with_question"
+          ? "full_plus_consultation"
+          : "full",
+      current_concern:
+        nextType === "complete_with_question"
+          ? "personal_question"
+          : "general",
+    }));
 
     document.getElementById("report-form")?.scrollIntoView({
       behavior: "smooth",
@@ -4072,24 +4163,9 @@ export default function Home() {
     });
   };
 
-  const chooseFreeReport = () => {
-    setFormData({
-      ...formData,
-      report_type: "free",
-    });
+  const getSelectedPrice = () =>
+    selectedReportType === "complete_with_question" ? "Rs. 99" : "Rs. 75";
 
-    document.getElementById("report-form")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  };
-
-  const getSelectedPrice = () => {
-    if (formData.report_type === "free") return "₹0";
-    if (formData.report_style === "consultation") return "₹49";
-    if (formData.report_style === "full_plus_consultation") return "₹149";
-    return "₹99";
-  };
 
   return (
     <main className="min-h-screen bg-[#fffaf2] text-[#2b1b12]">
@@ -4147,125 +4223,84 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="mb-8 rounded-2xl border border-[#d4a017] bg-[#fff6e6] p-6 shadow-md">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="rounded-full bg-[#d4a017] px-3 py-1 text-sm font-bold text-[#2b1b12]">
-                FREE
-              </span>
-              <h3 className="text-2xl font-bold text-[#5c0000]">
-                Free Mini Astrology Report
-              </h3>
-              <p className="text-3xl font-bold text-[#8b0000]">₹0</p>
-            </div>
+          <div className="grid gap-5 md:grid-cols-2">
+            {REPORT_OPTIONS.map((option) => {
+              const isSelected = selectedReportType === option.id;
 
-            <p className="mt-4 text-[#4b3528]">
-              Generate a free mini astrology report based on your birth chart. Get a quick overview of your personality, strengths, weaknesses, current Mahadasha and key life themes.
-            </p>
+              return (
+                <div
+                  key={option.id}
+                  className={`flex h-full min-h-[520px] flex-col rounded-[20px] border p-[30px] shadow-md transition hover:-translate-y-1 ${
+                    isSelected
+                      ? "border-2 border-[#8b0000] bg-[#fff7e8]"
+                      : "border-[#ead8b8] bg-white"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      {option.badge && (
+                        <p
+                          className={`mb-3 inline-block rounded-full px-3 py-1 text-sm font-bold ${
+                            option.badge === "Recommended"
+                              ? "bg-[#8b0000] text-white"
+                              : "bg-[#fff1d6] text-[#7a2b00]"
+                          }`}
+                        >
+                          {option.badge}
+                        </p>
+                      )}
+                      <h3 className="text-2xl font-bold text-[#5c0000]">
+                        {option.title}
+                      </h3>
+                    </div>
+                    {isSelected && (
+                      <span className="rounded-full bg-[#8b0000] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+                        Selected
+                      </span>
+                    )}
+                  </div>
 
-            <ul className="mt-4 space-y-2 text-[#4b3528]">
-              <li>✓ Personality Overview</li>
-              <li>✓ Current Mahadasha</li>
-              <li>✓ Basic Career Tendencies</li>
-              <li>✓ Basic Relationship Tendencies</li>
-              <li>✓ 2-3 Page PDF</li>
-            </ul>
+                  <div className="mt-3 flex items-end gap-3">
+                    <p className="text-4xl font-extrabold text-[#8b0000]">
+                      {`Rs. ${option.price}`}
+                    </p>
+                    <p className="pb-1 text-lg text-gray-500 line-through">
+                      {`Rs. ${option.oldPrice}`}
+                    </p>
+                  </div>
 
-            <p className="mt-4 font-semibold text-[#8b0000]">
-              Does not include personal questions, detailed timing, transit analysis or consultation.
-            </p>
+                  <p className="mt-5 text-[#4b3528]">{option.description}</p>
 
-            <button
-              type="button"
-              onClick={chooseFreeReport}
-              className="mt-6 rounded-xl bg-[#8b0000] px-5 py-3 font-bold text-white hover:bg-[#5c0000]"
-            >
-              Generate Free Report
-            </button>
-          </div>
+                  <ul className="mt-5 flex-1 space-y-3 text-[#4b3528]">
+                    {option.id === "complete" ? (
+                      <>
+                        <li>Detailed birth chart analysis</li>
+                        <li>Mahadasha and Antardasha timing</li>
+                        <li>Current Saturn, Jupiter, Rahu and Ketu transits</li>
+                        <li>Career, finance, marriage and health guidance</li>
+                        <li>D1 + D9 charts and life area scores</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>Everything in Complete Astrology Report</li>
+                        <li>Focused answer to one personal question</li>
+                        <li>Practical timing guidance</li>
+                        <li>Actionable advice and remedies</li>
+                        <li>Lal Kitab remedies based on your chart and timing</li>
+                      </>
+                    )}
+                  </ul>
 
-          <div className="grid gap-5 md:grid-cols-3">
-            <div className="flex h-full min-h-[700px] flex-col rounded-[20px] border border-[#ead8b8] bg-white p-[30px] shadow-md transition hover:-translate-y-1">
-              <h3 className="text-2xl font-bold text-[#5c0000]">Personal Consultation Report</h3>
-              <div className="mt-3 flex items-end gap-3">
-                <p className="text-4xl font-extrabold text-[#8b0000]">₹49</p>
-                <p className="pb-1 text-lg text-gray-500 line-through">₹75</p>
-              </div>
-              <p className="mt-3 inline-block rounded-full bg-[#fff1d6] px-3 py-1 text-sm font-bold text-[#7a2b00]">
-                Launch Offer
-              </p>
-              <ul className="mt-5 flex-1 space-y-3 text-[#4b3528]">
-                <li>Ask one important question</li>
-                <li>Dasha + transit based answer</li>
-                <li>Timing guidance</li>
-                <li>Practical advice</li>
-                <li>PDF download</li>
-              </ul>
-              <button
-                type="button"
-                onClick={() => choosePremiumReport("consultation")}
-                className="mt-auto h-16 min-h-16 max-h-16 w-full rounded-[14px] border-0 bg-[#a40000] px-5 text-lg font-bold text-white hover:bg-[#8b0000]"
-              >
-                Select
-              </button>
-            </div>
-
-            <div className="flex h-full min-h-[700px] flex-col rounded-[20px] border border-[#ead8b8] bg-white p-[30px] shadow-md transition hover:-translate-y-1">
-              <h3 className="text-2xl font-bold text-[#5c0000]">Complete Astrology Report</h3>
-              <div className="mt-3 flex items-end gap-3">
-                <p className="text-4xl font-extrabold text-[#8b0000]">₹99</p>
-                <p className="pb-1 text-lg text-gray-500 line-through">₹125</p>
-              </div>
-              <p className="mt-3 inline-block rounded-full bg-[#fff1d6] px-3 py-1 text-sm font-bold text-[#7a2b00]">
-                Launch Offer
-              </p>
-              <ul className="mt-5 flex-1 space-y-3 text-[#4b3528]">
-                <li>Personality analysis</li>
-                <li>Career and finance</li>
-                <li>Marriage and relationships</li>
-                <li>Health and wellbeing</li>
-                <li>Mahadasha and transits</li>
-                <li>D1 + D9 charts</li>
-                <li>Life area scores</li>
-              </ul>
-              <button
-                type="button"
-                onClick={() => choosePremiumReport("full")}
-                className="mt-auto h-16 min-h-16 max-h-16 w-full rounded-[14px] border-0 bg-[#a40000] px-5 text-lg font-bold text-white hover:bg-[#8b0000]"
-              >
-                Select
-              </button>
-            </div>
-
-            <div className={`flex h-full min-h-[700px] flex-col rounded-[20px] border bg-[#fff7e8] p-[30px] shadow-md transition hover:-translate-y-1 ${
-              formData.report_style === "full_plus_consultation"
-                ? "border-2 border-[#8b0000]"
-                : "border-[#8b0000]"
-            }`}>
-              <p className="mb-3 inline-block rounded-full bg-[#8b0000] px-3 py-1 text-sm font-bold text-white">
-                Recommended
-              </p>
-              <h3 className="text-2xl font-bold text-[#5c0000]">Complete Astrology + Consultation Report</h3>
-              <div className="mt-3 flex items-end gap-3">
-                <p className="text-4xl font-extrabold text-[#8b0000]">₹149</p>
-                <p className="pb-1 text-lg text-gray-500 line-through">₹199</p>
-              </div>
-              <ul className="mt-5 flex-1 space-y-3 text-[#4b3528]">
-                <li>Complete astrology report</li>
-                <li>One personal question</li>
-                <li>Direct answer</li>
-                <li>Timing and assessment</li>
-                <li>D1 + D9 charts</li>
-                <li>Life area scores</li>
-                <li>Best value package</li>
-              </ul>
-              <button
-                type="button"
-                onClick={() => choosePremiumReport("full_plus_consultation")}
-                className="mt-auto h-16 min-h-16 max-h-16 w-full rounded-[14px] border-0 bg-[#a40000] px-5 text-lg font-bold text-white hover:bg-[#8b0000]"
-              >
-                Select
-              </button>
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => choosePremiumReport(option.id)}
+                    className="mt-auto h-16 min-h-16 max-h-16 w-full rounded-[14px] border-0 bg-[#a40000] px-5 text-lg font-bold text-white hover:bg-[#8b0000]"
+                  >
+                    {isSelected ? "Selected" : "Select"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </section>
 
@@ -4509,52 +4544,26 @@ export default function Home() {
             )}
           </div>
 
-          <label className="block text-sm font-semibold text-[#5c0000]">
-            Report Type *
-          </label>
-          <select
-            name="report_type"
-            value={formData.report_type}
-            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 pr-36 text-[#2b1b12] outline-none focus:border-[#8b0000]"
-            onChange={handleChange}
-          >
-            <option value="free">Free Report</option>
-            <option value="premium">Premium Report</option>
-          </select>
-
-          {formData.report_type === "premium" && (
-            <>
-              <label className="block text-sm font-semibold text-[#5c0000]">
-                Premium Report Type *
-              </label>
-              <div className="relative">
-              <select
-            name="report_style"
-            value={formData.report_style}
-            className="w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 pr-36 text-[#2b1b12] outline-none focus:border-[#8b0000]"
-            onChange={handleChange}
-          >
-            <option value="consultation">
-              Personal Consultation Report - ₹49
-            </option>
-            <option value="full">
-              Complete Astrology Report - ₹99
-            </option>
-            <option value="full_plus_consultation">
-              Complete Astrology + Consultation Report - ₹149
-            </option>
-          </select>
-              {formData.report_style === "full_plus_consultation" && (
-                <span className="pointer-events-none absolute left-[420px] top-1/2 -translate-y-1/2 rounded-full bg-[#fff1d6] px-3 py-1 font-serif text-sm font-bold italic text-[#8b0000] shadow-sm max-md:hidden">
-                  Best Value
-                </span>
-              )}
-              </div>
-              <p className="hidden">
-                Recommended: Complete Astrology + Consultation Report - ₹149
+          <div className="rounded-2xl border border-[#ead8b8] bg-[#fffaf2] p-5">
+            <label className="block text-sm font-semibold text-[#5c0000]">
+              Selected Report
+            </label>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <span className="rounded-full bg-[#8b0000] px-3 py-1 text-sm font-bold text-white">
+                {selectedReportType === "complete_with_question"
+                  ? "Recommended"
+                  : "Complete"}
+              </span>
+              <p className="text-lg font-bold text-[#2b1b12]">
+                {selectedReportType === "complete_with_question"
+                  ? "Complete Astrology Report + Personal Question Analysis"
+                  : "Complete Astrology Report"}
               </p>
-            </>
-          )}
+              <p className="text-xl font-extrabold text-[#8b0000]">
+                {getSelectedPrice()}
+              </p>
+            </div>
+          </div>
 
           <div>
             <label className="mb-2 block text-sm font-medium text-[#5c0000]">
@@ -4611,89 +4620,46 @@ export default function Home() {
             <option value="complicated">Complicated</option>
           </select>
 
-          {formData.report_type === "premium" && (
-            <>
-          {formData.report_style !== "consultation" && (
-            <>
-              <div className="space-y-2">
-                <label
-                  htmlFor="current_concern"
-                  className="block text-sm font-semibold text-gray-800"
-                >
-                  Optional Focus Area
-                </label>
-                <p className="text-xs leading-relaxed text-gray-500">
-                  The report covers all aspects of life.
-                  <br />
-                  Choose an area only if you would like extra insights there.
-                </p>
-              <select
-                id="current_concern"
-                name="current_concern"
-                value={formData.current_concern || "general"}
-                onChange={handleChange}
-                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm focus:border-red-700 focus:outline-none focus:ring-1 focus:ring-red-700"
+          {selectedReportType === "complete_with_question" && (
+            <div className="mt-6 rounded-xl border border-red-100 bg-red-50/40 p-5">
+              <label
+                htmlFor="personal_question"
+                className="block text-sm font-semibold text-gray-900"
               >
-                <option value="general">No specific focus</option>
-                <option value="career">Career</option>
-                <option value="finance">Finance</option>
-                <option value="marriage">Marriage / Relationship</option>
-                <option value="health">Health</option>
-                <option value="education">Education</option>
-                <option value="spirituality">Spiritual Growth</option>
-              </select>
-              </div>
+                Your Personal Question
+              </label>
 
-            </>
-          )}
+              <p className="mt-1 text-xs leading-relaxed text-gray-600">
+                Ask one clear question. Example: When will I get married? When
+                will income improve? Should I change my career? Will this
+                relationship work?
+              </p>
 
-          {formData.report_style !== "full" && (
-            <>
               <textarea
-                name="main_question"
-                placeholder="Ask one specific question..."
-                value={formData.main_question}
-                required={
-                  formData.report_style === "consultation" ||
-                  formData.report_style === "full_plus_consultation"
-                }
-                className="min-h-28 w-full rounded-xl border border-[#ead8b8] bg-[#fffaf2] p-3 text-[#2b1b12] outline-none focus:border-[#8b0000]"
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    main_question: e.target.value,
-                  })
-                }
+                id="personal_question"
+                name="personal_question"
+                value={formData.personal_question || ""}
+                onChange={handleChange}
+                rows={3}
+                placeholder="Type your personal question here..."
+                className="mt-3 w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm focus:border-red-700 focus:outline-none focus:ring-1 focus:ring-red-700"
               />
 
-              <div className="rounded-xl border border-[#d4a017]/60 bg-[#fff6e6] p-4 text-sm text-[#4b3528]">
-                <p className="mb-2 font-bold text-[#5c0000]">
-                  One Primary Question Only
-                </p>
-                <ul className="list-disc space-y-1 pl-5">
-                  <li>When will my career improve?</li>
-                  <li>Will marriage happen?</li>
-                  <li>How will health remain?</li>
-                </ul>
-                <p className="mt-3">
-                  Only the first question will be analyzed.
-                </p>
-              </div>
-            </>
-          )}
-            </>
+              <p className="mt-2 text-xs text-gray-500">
+                If left blank, we will generate a general personal focus
+                analysis.
+              </p>
+            </div>
           )}
 
           <button
             type="button"
             onClick={generateReport}
             disabled={loading}
-            className="w-full rounded-xl bg-[#8b0000] p-4 font-bold text-white transition-all hover:bg-[#5c0000] disabled:cursor-not-allowed disabled:opacity-70"
+            className="w-full rounded-xl bg-[#8b0000] px-5 py-4 text-lg font-bold text-white hover:bg-[#5c0000] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading
               ? loadingMessages[loadingMessageIndex]
-              : formData.report_type === "free"
-              ? "Generate Free Report"
               : `Generate Report - ${getSelectedPrice()}`}
           </button>
 

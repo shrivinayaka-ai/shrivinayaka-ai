@@ -425,27 +425,49 @@ app.add_middleware(
 )
 
 
-def get_report_display_names(report_style: str):
-    style = (report_style or "full").lower().strip()
+def normalize_selected_report_type(report_type: str | None, report_style: str | None = None):
+    value = (report_type or "").lower().strip()
+    style = (report_style or "").lower().strip()
 
-    if style == "consultation":
-        return {
-            "cover_title": "Personal Consultation Report",
-            "report_type_label": "Personal Consultation Report",
-            "price": 49,
-        }
+    if value in {"complete", "complete_astrology"}:
+        return "complete"
+
+    if value in {"complete_with_question", "full_plus_consultation"}:
+        return "complete_with_question"
+
+    if value == "premium":
+        if style == "full_plus_consultation":
+            return "complete_with_question"
+        return "complete"
 
     if style == "full_plus_consultation":
+        return "complete_with_question"
+
+    if style in {"full", "consultation"}:
+        return "complete"
+
+    return value or "complete"
+
+
+def map_report_style_from_type(report_type: str | None, report_style: str | None = None):
+    normalized = normalize_selected_report_type(report_type, report_style)
+    return "full_plus_consultation" if normalized == "complete_with_question" else "full"
+
+
+def get_report_display_names(report_type: str | None, report_style: str | None = None):
+    normalized = normalize_selected_report_type(report_type, report_style)
+
+    if normalized == "complete_with_question":
         return {
-            "cover_title": "Complete Astrology + Consultation Report",
-            "report_type_label": "Complete Astrology + Consultation Report",
-            "price": 149,
+            "cover_title": "Complete Astrology Report + Personal Question Analysis",
+            "report_type_label": "Complete Astrology Report + Personal Question Analysis",
+            "price": 99,
         }
 
     return {
         "cover_title": "Complete Astrology Report",
         "report_type_label": "Complete Astrology Report",
-        "price": 99,
+        "price": 75,
     }
 
 
@@ -546,9 +568,11 @@ class BirthData(BaseModel):
     birth_date: str
     birth_time: str
     birth_place: str
-    report_type: str = "free"
+    report_type: str = "complete"
     report_style: str = "full"
     language: str = "english"
+    include_personal_question: bool = False
+    personal_question: str | None = None
     payment_token: str | None = None
     latitude: float | None = None
     longitude: float | None = None
@@ -570,6 +594,7 @@ class PaymentVerification(BaseModel):
 
 
 class PaymentOrderRequest(BaseModel):
+    report_type: str = "complete"
     report_style: str = "full"
     payload: dict | None = None
 
@@ -660,7 +685,7 @@ def get_single_report(
 
 @app.post("/create-payment-order")
 def create_payment_order(data: PaymentOrderRequest):
-    display = get_report_display_names(data.report_style)
+    display = get_report_display_names(data.report_type, data.report_style)
     order = create_order(display["price"])
     pending_payment_orders[order["id"]] = data.payload or {}
 
@@ -729,7 +754,7 @@ def complete_payment_order(data: PaymentVerification):
     verified_payment_tokens.add(token)
 
     payload = dict(payload)
-    payload["report_type"] = "premium"
+    payload["report_type"] = payload.get("report_type") or "complete"
     payload["payment_token"] = token
 
     report_data = BirthData(**payload)
@@ -800,8 +825,16 @@ def generate_report(data: BirthData):
     birth_date_for_chart = normalize_birth_date(data.birth_date)
     birth_time_for_chart = validate_birth_time(data.birth_time)
     is_dev_payment = getattr(data, "payment_id", "") == "DEV_PAYMENT_TEST"
+    normalized_report_type = normalize_selected_report_type(
+        data.report_type,
+        data.report_style,
+    )
+    normalized_report_style = map_report_style_from_type(
+        data.report_type,
+        data.report_style,
+    )
 
-    if data.report_type.lower().strip() == "premium":
+    if normalized_report_type in {"complete", "complete_with_question", "premium"}:
         if (
             (not data.payment_token or data.payment_token not in verified_payment_tokens)
             and not is_dev_payment
@@ -837,6 +870,10 @@ def generate_report(data: BirthData):
     )
 
     question = data.main_question.strip() if data.main_question else None
+    personal_question = data.personal_question.strip() if data.personal_question else None
+
+    if personal_question and not question:
+        question = personal_question
 
     if question and len(question) > 250:
         question = question[:250]
@@ -844,14 +881,20 @@ def generate_report(data: BirthData):
     print("STARTING AI REPORT GENERATION")
     report = generate_full_prediction(
         chart_data=chart,
-        report_type=data.report_type,
+        report_type=normalized_report_type,
         language=data.language,
-        report_style=data.report_style,
+        report_style=normalized_report_style,
         user_context={
-            "current_concern": data.current_concern,
+            "current_concern": data.current_concern or (
+                "personal_question"
+                if normalized_report_type == "complete_with_question"
+                else "general"
+            ),
             "employment_status": data.employment_status,
             "relationship_status": data.relationship_status,
-            "main_question": question
+            "main_question": question,
+            "personal_question": personal_question,
+            "include_personal_question": data.include_personal_question,
         }
     )
     print("AI REPORT GENERATION COMPLETE")
@@ -864,8 +907,8 @@ def generate_report(data: BirthData):
             current_dasha = period
             break
 
-    payment_status = "paid" if data.report_type.lower().strip() == "premium" else "free"
-    display = get_report_display_names(data.report_style)
+    payment_status = "paid" if normalized_report_type in {"complete", "complete_with_question", "premium"} else "free"
+    display = get_report_display_names(normalized_report_type, normalized_report_style)
 
     print("SAVING REPORT")
     report_id = save_report(
@@ -873,7 +916,7 @@ def generate_report(data: BirthData):
         birth_date=data.birth_date,
         birth_time=birth_time_for_chart,
         birth_place=data.birth_place,
-        report_type=data.report_type,
+        report_type=normalized_report_type,
         current_mahadasha=current_dasha,
         chart=chart,
         report_text=report,
@@ -882,14 +925,14 @@ def generate_report(data: BirthData):
     display_report_id = f"SK{datetime.now().strftime('%Y%m%d%H%M%S')}"
     generated_on = datetime.now().strftime("%d/%m/%Y")
 
-    if data.report_type.lower().strip() == "premium":
+    if normalized_report_type in {"complete", "complete_with_question", "premium"}:
         response = {
             "report_id": report_id,
             "display_report_id": display_report_id,
             "generated_on": generated_on,
             "name": data.name,
-            "report_type": data.report_type,
-            "report_style": data.report_style,
+            "report_type": normalized_report_type,
+            "report_style": normalized_report_style,
             "cover_title": display["cover_title"],
             "report_type_label": display["report_type_label"],
             "language": data.language,
@@ -900,7 +943,9 @@ def generate_report(data: BirthData):
                 "birth_time": birth_time_for_chart,
                 "birth_place": data.birth_place,
                 "employment_status": data.employment_status,
-                "relationship_status": data.relationship_status
+                "relationship_status": data.relationship_status,
+                "personal_question": personal_question,
+                "include_personal_question": data.include_personal_question,
             },
             "current_mahadasha": current_dasha,
             "nakshatra": chart.get("nakshatra"),
@@ -924,8 +969,8 @@ def generate_report(data: BirthData):
             "display_report_id": display_report_id,
             "generated_on": generated_on,
             "name": data.name,
-            "report_type": data.report_type,
-            "report_style": data.report_style,
+            "report_type": normalized_report_type,
+            "report_style": normalized_report_style,
             "cover_title": display["cover_title"],
             "report_type_label": display["report_type_label"],
             "language": data.language,
